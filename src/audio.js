@@ -100,4 +100,7 @@ export class AudioFX {
   overtake() { this.blip(520, 0.1, 'triangle', 0.16); }
 
   penalty() { this.blip(220, 0.18, 'square', 0.12); }
+
+  // irányjelző „kattanás” (villogási fázismgatók)
+  blink() { this.blip(1150, 0.035, 'square', 0.045); }
 }

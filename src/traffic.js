@@ -3,7 +3,7 @@
 // tolja a dinamikus játékost, érintkezési eseményt ad — nem kell kézzel raycastelni.
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { LANE_W, TRAFFIC, laneCenterX } from './constants.js';
+import { LANE_W, MODELS, TRAFFIC, laneCenterX } from './constants.js';
 
 const CAR_COLORS = [0x3d7fd6, 0xcfd6dd, 0x6fbf73, 0xd98a45, 0xa056c8, 0xe5e04c, 0x4fb6b6, 0xdf4c4c];
 const TRUCK_COLORS = [0x2f7ac6, 0xcf5444, 0x3f8f5f, 0xd69a2e];
@@ -18,21 +18,47 @@ export class Traffic {
     this.time = 0;
     this.onOvertake = null; // (car) => void
     this.onPenalty = null;  // (car, msgSelf) => void
+    this.models = null;     // { sedans: [Group], truck: Group } — glTF betöltés után
   }
 
-  spawn(playerZ, difficulty = 0) {
+  setModels(models) { this.models = models; }
+
+  spawn(playerZ, difficulty = 0, near = 0, forcedLane = -1) {
     if (this.cars.length >= TRAFFIC.maxCars) return;
-    const lane = this.pickLane();
+    const lane = forcedLane >= 0 ? forcedLane : this.pickLane();
     const truck = lane === 2 && Math.random() < TRAFFIC.truckChance;
     const speed = this.pickSpeed(lane, truck);
-    const z = playerZ + 145 + Math.random() * 110 + difficulty * 10;
+    const z = near > 0
+      ? playerZ + near + Math.random() * 45
+      : playerZ + TRAFFIC.spawnNear + Math.random() * TRAFFIC.spawnSpan + difficulty * 15;
+
+    // a „közel” szemecek azonnal létrejönnek, sáv-védelem nélkül
+    if (near > 0) {
+      const speed2 = this.pickSpeed(lane, truck);
+      this.createEntry(lane, truck, speed2, z);
+      return;
+    }
 
     // ne spawnoljunk szembe a játékossal ugyanabban a sávban túl közel
     for (const c of this.cars) {
-      if (c.lane === lane && Math.abs(c.body.position.z - z) < 70) return;
+      if (c.lane === lane && Math.abs(c.body.position.z - z) < TRAFFIC.minGap) return;
     }
 
-    const len = truck ? 6.0 : 2.1;
+    this.createEntry(lane, truck, speed, z);
+  }
+
+  // hátulról érkező gyors autó (a visszapillantó tükör számára): a bal sávban
+  // közelít, majd szabályosan (balról) előz minket.
+  spawnBehind(player) {
+    if (this.cars.length >= TRAFFIC.maxCars) return;
+    const lane = 0;
+    const speed = TRAFFIC.behindSpeed[0] + Math.random() * (TRAFFIC.behindSpeed[1] - TRAFFIC.behindSpeed[0]);
+    const z = player.pos.z - (TRAFFIC.behindStart + Math.random() * TRAFFIC.behindSpan);
+    this.createEntry(lane, false, speed, z);
+  }
+
+  createEntry(lane, truck, speed, z) {
+    const len = truck ? MODELS.truckLen : MODELS.carLen;
     const body = new CANNON.Body({
       type: CANNON.Body.KINEMATIC,
       shape: new CANNON.Box(new CANNON.Vec3(0.95, 0.5, len / 2)),
@@ -66,39 +92,49 @@ export class Traffic {
 
   buildVisual(lane, truck, len, speed) {
     const g = new THREE.Group();
-    const col = truck ? TRUCK_COLORS[Math.floor(Math.random() * TRUCK_COLORS.length)]
-                      : CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
-    const mat = new THREE.MeshStandardMaterial({ color: col, roughness: 0.45, metalness: 0.35 });
 
-    if (truck) {
-      const cab = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.3, 1.4), mat);
-      cab.position.set(0, 1.2, len / 2 - 0.7);
-      cab.castShadow = true;
-      const trailer = new THREE.Mesh(
-        new THREE.BoxGeometry(1.95, 1.6, len - 1.6),
-        new THREE.MeshStandardMaterial({ color: 0xe8ecef, roughness: 0.6 })
-      );
-      trailer.position.set(0, 1.35, -0.2);
-      trailer.castShadow = true;
-      g.add(cab, trailer);
+    if (this.models) {
+      // glTF-modell (klón, megosztott geometria/anyag) — a talajon áll
+      const model = truck
+        ? this.models.truck.clone()
+        : this.models.sedans[Math.floor(Math.random() * this.models.sedans.length)].clone();
+      model.position.y = -0.6; // a test középpjától a talajra
+      g.add(model);
     } else {
-      const car = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.55, len), mat);
-      car.position.y = 0.55;
-      car.castShadow = true;
-      const top = new THREE.Mesh(
-        new THREE.BoxGeometry(1.5, 0.4, len * 0.55),
-        new THREE.MeshStandardMaterial({ color: 0x1a222c, roughness: 0.3 })
-      );
-      top.position.set(0, 1.0, -0.1);
-      top.castShadow = true;
-      g.add(car, top);
+      const col = truck ? TRUCK_COLORS[Math.floor(Math.random() * TRUCK_COLORS.length)]
+                        : CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
+      const mat = new THREE.MeshStandardMaterial({ color: col, roughness: 0.45, metalness: 0.35 });
+
+      if (truck) {
+        const cab = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.3, 1.4), mat);
+        cab.position.set(0, 1.2, len / 2 - 0.7);
+        cab.castShadow = true;
+        const trailer = new THREE.Mesh(
+          new THREE.BoxGeometry(1.95, 1.6, len - 1.6),
+          new THREE.MeshStandardMaterial({ color: 0xe8ecef, roughness: 0.6 })
+        );
+        trailer.position.set(0, 1.35, -0.2);
+        trailer.castShadow = true;
+        g.add(cab, trailer);
+      } else {
+        const car = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.55, len), mat);
+        car.position.y = 0.55;
+        car.castShadow = true;
+        const top = new THREE.Mesh(
+          new THREE.BoxGeometry(1.5, 0.4, len * 0.55),
+          new THREE.MeshStandardMaterial({ color: 0x1a222c, roughness: 0.3 })
+        );
+        top.position.set(0, 1.0, -0.1);
+        top.castShadow = true;
+        g.add(car, top);
+      }
     }
     // hátsó lámpa (két piros csík) — minket követő kb. autók hátulját látjuk
     const tail = new THREE.Mesh(
-      new THREE.BoxGeometry(1.7, 0.1, 0.08),
+      new THREE.BoxGeometry(1.55, 0.1, 0.08),
       new THREE.MeshStandardMaterial({ color: 0x660000, emissive: 0xff2222, emissiveIntensity: 1.6 })
     );
-    tail.position.set(0, 0.62, -len / 2);
+    tail.position.set(0, 0.55, -len / 2);
     g.add(tail);
 
     this.scene.add(g);
@@ -112,8 +148,9 @@ export class Traffic {
     // konvoj-összetapadás: azonos sávban a hátsó átveszi az elöl haladó tempóját
     const byLane = [[], [], []];
     for (const c of this.cars) {
-      if (c.ghost) { c.body.position.z += c.speed * dt; continue; }
       c.body.position.z += c.speed * dt;
+      this.syncMesh(c);
+      if (c.ghost) continue;
       byLane[c.lane].push(c);
     }
     for (const laneArr of byLane) {
@@ -136,11 +173,13 @@ export class Traffic {
       }
     }
 
-    // törlés (lemaradt)
+    // törlés (lemaradt): csak azok távolodnak a játékostól, akik NÁLA
+    // LASSABBAK a hátsó térben — a gyorsabb hátulról közelítők útban maradnak
+    // (ők a visszapillantó tükör forgalma!), amíg el nem haladnak.
     for (let i = this.cars.length - 1; i >= 0; i--) {
       const c = this.cars[i];
       if (c.ghost) continue;
-      if (c.body.position.z < pz - 40) {
+      if (c.body.position.z < pz - 40 && c.speed <= player.fwdSpeed + 1) {
         this.world.removeBody(c.body);
         this.scene.remove(c.meshes);
         this.byId.delete(c.body.id);
@@ -148,13 +187,19 @@ export class Traffic {
       }
     }
 
-    // spawnolás (nehézség növeli a sűrűséget)
+    // spawnolás (nehézség növeli a sűrűséget; néha hátulról jön a gyors)
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
-      this.spawn(player.pos.z, difficulty);
+      if (Math.random() < TRAFFIC.behindChance) this.spawnBehind(player);
+      else this.spawn(player.pos.z, difficulty);
       const base = Math.max(TRAFFIC.spawnMin, TRAFFIC.spawnBase - this.time * 0.014);
       this.spawnTimer = base * (0.7 + Math.random() * 0.6);
     }
+  }
+
+  // A látvány-mesh követi a fizikai testet (különben láthatatlan volna az autó).
+  syncMesh(c) {
+    c.meshes.position.set(c.body.position.x, c.body.position.y, c.body.position.z);
   }
 
   // A KRESZ-szabályokból eredő pontozás az elhaladás pillanatában.
@@ -175,8 +220,8 @@ export class Traffic {
         this.onOvertake && this.onOvertake(car);
         msg('+30 ÉLŐZÉS', '#7dffa0');
       } else {
-        this.onPenalty && this.onPenalty(car, false);
-        msg('Jobbról előztek! -15', '#ff8a80');
+        // a másik autó szabályosan, balról megelőzött minket — semmi büntetés
+        msg('Balról előztek (rendben)', '#9ad0ff');
       }
     } else {
       // a játékos jobbra van az autótól
@@ -217,6 +262,8 @@ export class Traffic {
       new THREE.MeshStandardMaterial({ color: 0xff1744, emissive: 0x880000, emissiveIntensity: 0.6 })
     );
     red.position.y = 0.75;
+    red.position.x = body.position.x;
+    red.position.z = body.position.z;
     red.castShadow = true;
     this.scene.add(red);
 

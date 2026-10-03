@@ -10,8 +10,8 @@ a cél kettős: **jobbra tartani** (magyar KRESZ-alapjárat: a jobb szélső sá
 
 | | |
 |---|---|
-| Nézet | háromnegyed-kamera (chase cam), belső 3D-s Motor-We (Three.js) |
-| Irányítás | W/S gáz–fék, A/D (vagy ←/→) kormányzás, P szünet, M hang, érintőgombok mobilon |
+| Nézet | **belső (kokpit) nézet** — vezető szemmagasságból, visszapillantó tükörrel; külső (chase) kamera csak a kezdő/game-over képernyőn |
+| Irányítás | W/S gáz–fék, A/D (vagy ←/→) kormányzás, **Q/E irányjelző (index)**, P szünet, M hang, érintőgombok mobilon |
 | Sávok | 3 sáv; a játékos szabadon váltogat, de **a jobb szélső sáv a helye** |
 | Forgalom | autók + kamionok, sávonként eltérő sebességtartománnyal (jobbra lassabb) |
 | Játék vége | 3 élet; ütközés = baleset → −1 élet, −150 pont, szorzó nullázás |
@@ -48,6 +48,8 @@ korlát, érintkezési események). Mi csak a kasztnira adott hajtóerőket adju
 | Szabályos előzés (balról) | **+30** | a megelőzött jármű elhaladásakor |
 | Jobbról előznek (balon araszolsz) | **−15** | nem a Te hibád, de a Te felelősséged |
 | Jobbról előzöl | **−15** | KRESZ: tilos jobbról előzni |
+| Indexelt sávváltás | **+12** | a jelzés ≥0,2 s-mal előzte a váltást (max 3 s) |
+| Index nélküli sávváltás | **−8** | KRESZ: sávváltás előtt kötelező jelezni |
 | Baleset | **−150**, −1 élet, szorzó nullázódik | |
 | Gazdaságossági szakasz-bónusz | lásd lent | 10 mp-enként fizet |
 
@@ -87,8 +89,11 @@ sávváltási ritmus). A zöldzóna éppen a kamionok sebessége felett van, a g
 - Kamion-arány a jobb sávban ~55%, hosszú pótkocsival.
 - Kinematikus testek: mi mozgatjuk őket sávon belül állandó sebességgel; konvoj-összetapadás
   van (azonos sávban a hátsó átveszi az első tempóját).
-- Spawn: a ködön túl (145–255 m), nehézséggel csökkenő időköz (2,1 s → 0,8 s), max 16 autó.
-- Despawn: ha lemarad a játékos mögé.
+- Spawn: a ködön túl (145–255 m), nehézséggel csökkenő időköz, max 16+ autó.
+- **Hátulról érkezők** (a tükörnek): a spawnok ~50%-a gyors, csak-a-bal-sávos autó,
+  amely a játékos mögött (70–140 m) indul és utoléri — a bal sávban szabályosan előzhet.
+- Despawn: csak a **lassabb** lemaradt autók kerülnek ki a játékos mögül; a gyorsabb
+  hátulról közelítők addig maradnak, amíg utolérnek és el nem haladnak.
 
 ---
 
@@ -98,8 +103,12 @@ sávváltási ritmus). A zöldzóna éppen a kamionok sebessége felett van, a g
 - Fönt középen: életek (❤) + szorzó × / sárga csillagok.
 - Jobbra fent: **SIMA VEZETÉS** csík (zöld-sárga-piros) + szakasz-idő csík.
 - Jobbra lent: sebesség km/h.
-- 3D-be vetített feliratok: „+30 ELŐZÉS”, „Jobbról előztek! −15”, „+870 ✦ BÓNUSZ ×2,5”,
-  „−150 BALESET” — a világbeli pozícióra vetítve.
+- 3D-be vetített feliratok: „+30 ELŐZÉS”, „Jobbról előztek! −15”, „+12 INDEXELÉS ✓”,
+  „−8 INDEXELÉS NÉLKÜL”, „+870 ✦ BÓNUSZ ×2,5”, „−150 BALESET” — a világbeli pozícióra vetítve.
+- **Visszapillantó tükör**: alacsony felbontású (420×105) céltextúra, a kormány fölé rajzolt
+  kép a tükörtáblán — minden képkockán a tükör-kamera hátsó nézete tölti. A rendes
+  főnézetben fólia-kamera a világ objektumaihoz rétegelve (saját autó váza + a külvilág),
+  a belső elemek (műszerfal, kormány, tükrök) külön rétegben, hogy a kokpitból látszódjanak.
 - Első 15 mp: forgó tanító tippek. Kezdő képernyő: a szabályok összefoglalása.
 - Rázkódás, piros villanás, szilánkok balesetkor. Hangeffektek WebAudio-val (M ki/be).
 
@@ -110,6 +119,10 @@ sávváltási ritmus). A zöldzóna éppen a kamionok sebessége felett van, a g
 - **Three.js** (r169) — megjelenítés; **cannon-es** (0.20) — fizika/ütközés; **Vite** — build/dev.
 - Pálya felépítés: lapos szakaszok (út 6000 m hosszú textúragörgetéssel), korlát + fák + táblák,
   köd a távolságban.
+- Játékos-autó: **igazi 3D-modell** (`public/models/ferrari.glb`, Draco-tömörített,
+  `public/draco/` dekódoló); a forgalom sedan/ferrari/teherautó-modellek klónjaival megy.
+  `src/models.js` normalizál (méretarány ~4,3 m, tájolás +Z felé, talajra festés);
+  betöltési hiba esetén dobozos vészrájzolás. Nevek/licencek a modellfájlok mellett.
 - Fizika: gravitáció nélküli cannon-világ; a játékos kasztnija dinamikus (kontakteseményekhez
   kell), a sebességet mi írjuk elő — ez arcade érzést és determinisztikus hangolást ad.
 - Fájlok: `src/main.js` (orgona), `player.js`, `traffic.js`, `world.js`, `scoring.js`,
@@ -128,8 +141,8 @@ sávváltási ritmus). A zöldzóna éppen a kamionok sebessége felett van, a g
 
 ## 9. Bővítési ötletek (v2+)
 
-- **Sávváltó forgalom** (indexes autók, lassabb kamion kihúzódik jobbra) + szabályos
-  sávváltás-pontozás.
+- **Sávváltó forgalom**: lassabb kamion húzódjon ki jobbra (indexekkel) — a szabályos
+  sávváltás-pontozás és a lassú sávváltó autók már kész.
 - **Időjárás/napszak**: eső (csúszós, rosszabb tapadás → gazdaságosabb itt is tanít),
   éjszaka (fényszórók, világító korlát-reflektorpóznák).
 - **Üzemanyag- és károsanyag-mutató**: a bónusz „l/100km” stílusú visszajelzést is mutat.

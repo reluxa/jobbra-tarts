@@ -24,9 +24,9 @@ export const CAR = {
 
 // Hajtás-érzés (boltozatos, irányítható) — az ütközés ezektől függetlenül a cannonon megy.
 export const DRIVE = {
-  accel: 13.0,      // m/s² teljes gáznál (analóg gázzal finoman adagolható)
-  brake: 24.0,      // m/s² teljes fékezésnél
-  drag: 0.014,      // légellenállás (v² szorzó)
+  accel: 15.0,      // m/s² teljes gáznál (analóg gázzal finoman adagolható)
+  brake: 26.0,      // m/s² teljes fékezésnél
+  drag: 0.0042,     // légellenállás (v² szorzó) — végsebesség ~125 km/h
   steerLerp: 6.0,   // kormány be/kicsiklázás sebessége
   lateralK: 7.0,    // oldalesúszás csillapítás
   yawRate: 1.35,    // max fejfordulási sebesség (rad/s)
@@ -35,10 +35,10 @@ export const DRIVE = {
 // ---- Forgalom ----
 // Sávonkénti sebességtartomány (m/s) és kamion-arány.
 export const TRAFFIC = {
-  spawnBase: 2.1,   // kezdeti átlagos spawn-időköz (s)
-  spawnMin: 0.8,
-  maxCars: 16,
-  waits: [0.16, 0.3, 0.54],   // sáv kiválasztás valószínűsége (bal, közép, jobb)
+  spawnBase: 0.95,  // átlagos spawn-időköz (s)
+  spawnMin: 0.5,
+  maxCars: 22,
+  waits: [0.2, 0.38, 0.42],   // sáv kiválasztás valószínűsége (bal, közép, jobb)
   speedByLane: [
     [30, 38],   // bal sáv: gyorsak
     [25, 32],   // közép
@@ -46,6 +46,13 @@ export const TRAFFIC = {
   ],
   truckSpeed: [16, 21], // kamion (jobb sáv)
   truckChance: 0.55,    // a jobb sávban mekkora eséllyel kamion
+  spawnNear: 95,        // legközelebbi spawn-távolság (m)
+  spawnSpan: 75,        // spawn-eltolástartomány (m)
+  minGap: 55,           // azonos sávú min. távolság a spawn-nál
+  behindChance: 0.5,    // esély, hogy a spawn hátulról jövő gyors autót rakjon (tükör!)
+  behindStart: 70,      // indulási távolság mögöttünk (m)
+  behindSpan: 70,
+  behindSpeed: [38, 46], // a gyors bal-sávos utolérők sebessége (m/s)
 };
 
 // ---- Pontozás ----
@@ -71,14 +78,38 @@ export const ECO = {
   max: 100,
 };
 
-// ---- Kamera ----
+// Kanera/irózók — vezetés közben belső (vezetőülési) nézet, a visszapillantó
+// tükör a tényleges hátsó kaméra képét mutatja egy kicsi RT-textúrán.
 export const CAMERA = {
   height: 5.0,
   dist: 8.6,
   lookAhead: 5.5,
   fov: 62,
   shakeK: 1.0,
+  cockpit: { x: 0.38, y: 1.02, z: 0.12, lookAhead: 20, lookY: 0.55 },
+  mirror: { front: 1.05, height: 1.5, fov: 46, lookBack: 70, lookY: 0.25 },
+  mirrorSize: { w: 420, h: 105 },
+};
+
+// ---- Index(irányjelző) - KRESZ ----------------
+export const SIGNAL = {
+  points: 12,       // szabályosan indexelt sávváltás bónusz
+  noSignalPenalty: 8, // irányjelzés nélküli sávváltás levonás
+  autoOff: 3.0,     // ennyi idő után magától kikapcsol (mp)
+  minLead: 0.2,     // a jelzés legalább ennyivel előzze meg a váltást
+  blinkHz: 1.5,     // villogás frekvencia (percenkénti ciklus)
 };
 
 // Fizikai rögzített lépés (Hz)
 export const PHYS_FIXED = 1 / 60;
+
+// GlTF autómodellek (public/models) — betöltés előtt/véletlenül hiányzó fájl
+// esetén a dobozos vészrájzolás marad, tehát nincs semmi függőség.
+export const MODELS = {
+  player: '/models/ferrari.glb',
+  sedans: ['/models/ferrari.glb', '/models/sedan.glb'],
+  truck: '/models/truck.glb',
+  playerLen: 4.3,
+  carLen: 4.35,
+  truckLen: 6.4,
+};

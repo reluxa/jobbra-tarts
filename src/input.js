@@ -26,12 +26,24 @@ export class Input {
     bind('tBrk', 'brake');
     bind('tL', 'left');
     bind('tR', 'right');
+    // index (irányjelző) gombok: nyomásra egyszeri jelzés
+    const bindSig = (id, dir) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        if (this.onSignal) this.onSignal(dir);
+      });
+    };
+    bindSig('tSigL', -1);
+    bindSig('tSigR', 1);
   }
 
   keydown(e) {
     const k = e.key.toLowerCase();
     if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k)) e.preventDefault();
     if (this.onAnyKey) this.onAnyKey();
+    if ((k === 'q' || k === 'e') && this.onSignal) this.onSignal(k === 'q' ? -1 : 1);
     this.keys.add(k);
   }
   keyup(e) {

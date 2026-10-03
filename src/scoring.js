@@ -1,7 +1,7 @@
 // Pontrendszer: jobbra tartás + előzés/balon-araszolás szabályai + gazdaságossági
 // szakasz-bónusz. A gáz/fék analóg értéket (0..1) kap, hogy a finom vezetésnek
 // legyen tétje: a "rángatós" használat vágja a simaság-mérőt.
-import { ECO, SCORE } from './constants.js';
+import { ECO, SCORE, SIGNAL } from './constants.js';
 
 export class Scoring {
   constructor() {
@@ -14,6 +14,7 @@ export class Scoring {
     this.parts = {
       right: 0, overtake: 0, overtakes: 0,
       bonus: 0, penalty: 0, crash: 0,
+      signal: 0, signalsOK: 0, noSignal: 0, noSignalCount: 0,
     };
     this.eco = 100;
     this.sectionSum = 0;
@@ -83,6 +84,19 @@ export class Scoring {
     this.streak = 0;
   }
 
+  // sávváltás: spoós(proper) → bónusz, különben levonás.
+  signalChange(proper) {
+    if (proper) {
+      this.score += SIGNAL.points;
+      this.parts.signal += SIGNAL.points;
+      this.parts.signalsOK++;
+    } else {
+      this.score -= SIGNAL.noSignalPenalty;
+      this.parts.noSignal += SIGNAL.noSignalPenalty;
+      this.parts.noSignalCount++;
+    }
+  }
+
   // Az állapot "halad a szakasz" arányát adja a HUD-sávhoz (0..1)
   sectionFrac() {
     return 1 - Math.max(0, this.sectionT) / SCORE.sectionLen;
@@ -93,6 +107,8 @@ export class Scoring {
       ['Jobbra tartás', Math.round(this.parts.right), ''],
       ['Szabályos előzés', Math.round(this.parts.overtake), this.parts.overtakes + ' alkalom'],
       ['Gazdaságossági bónusz', Math.round(this.parts.bonus), this.bonusCount + ' szakasz'],
+      ['Indexelt sávváltás', Math.round(this.parts.signal), this.parts.signalsOK + ' alkalom'],
+      ['Index nélküli sávváltás', -this.parts.noSignal, this.parts.noSignalCount + ' alkalom'],
       ['Jobbról-előzés büntetés', -this.parts.penalty, ''],
       ['Baleseti levonás', -this.parts.crash, ''],
     ];

@@ -131,7 +131,7 @@ export class World {
     for (const side of [-1, 1]) {
       const barrier = new THREE.Mesh(
         new THREE.BoxGeometry(0.28, 0.85, 6000),
-        new THREE.MeshLambertMaterial({ color: 0xaeb6bd, metalness: 0.6 })
+        new THREE.MeshLambertMaterial({ color: 0xaeb6bd })
       );
       barrier.position.set(side * BARRIER_X, GROUND_Y + 0.43, 0);
       this.scene.add(barrier);

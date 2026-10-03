@@ -1,7 +1,8 @@
 // Fő játékvezérlő: render-loop, fizikai rögzített lépés, állapotgép, ütközés-kezelés.
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { CAMERA, PHYS_FIXED } from './constants.js';
+import { CAMERA, PHYS_FIXED, SIGNAL } from './constants.js';
+import { laneCenterX } from './constants.js';
 import { World } from './world.js';
 import { Player } from './player.js';
 import { Traffic } from './traffic.js';
@@ -10,6 +11,7 @@ import { Scoring } from './scoring.js';
 import { HUD } from './hud.js';
 import { Input } from './input.js';
 import { AudioFX } from './audio.js';
+import { loadCarModels } from './models.js';
 
 const TIPS = [
   'A jobb szélső sáv a haladási sávod — ott haladva pontot kapsz.',
@@ -17,6 +19,8 @@ const TIPS = [
   'Jobbról előztek? Túl balfelé kószálsz — húzódj jobbra!',
   'Minél simábban bánsz a gázzal/fékkel, annál több a 10 mp-es bónusz.',
   'Kamion a jobb sávban? Időben fékezz, vagy előzd meg szabályosan.',
+  'Sávváltás előtt indexelj (Q/E): +12 pont, jelzés nélkül −8!',
+  'Visszapillantó tükör: nézd, ki közelít hátulról a bal sávban!',
   'Szorozd a bónuszt: egymás után több jó szakasz = nagyobb szorzó.',
 ];
 const TIP_DELAY = 4.5;
@@ -44,6 +48,9 @@ export class Game {
     this.tipT = 1.0;
     this.tipIdx = 0;
     this.crashCount = 0;
+    this.prevLane = 2;
+    this.prevBlinkOn = false;
+    this.playerHasModel = false;
 
     this.worldPhys = makePhysics();
     this.initRenderer();
@@ -55,6 +62,14 @@ export class Game {
     window.__start = () => this.start();
     window.__testCrash = () => this.testCrash();
     window.__forceSection = () => this.scoring.settleSection();
+    window.__jumpLane = (lane, edge = 0) => {
+      if (this.state !== 'play') return;
+      this.player.respawnAtLane(lane);
+      if (edge) this.player.chassis.position.x = laneCenterX(lane) + edge;
+      this.player.speed = 18;   // indulósebesség: a teszt ne a gyorsítástól függjön
+      this.player.fwdSpeed = 18;
+      this.prevLane = lane;
+    };
     window.__rayTest = (fromX, fromY, toY) => {
       const w = this.worldPhys;
       const from = new CANNON.Vec3(fromX, fromY, 0);
@@ -64,6 +79,8 @@ export class Game {
       return { hit, hasHit: res.hasHit, dist: res.hasHit ? +res.distance.toFixed(3) : null, body: res.hasHit ? res.body ? res.body.type : 'null' : 'none', gx: res.hasHit ? res.hitPointWorld.x : null, gy: res.hasHit ? +res.hitPointWorld.y.toFixed(3) : null };
     };
     window.__ready = true;
+    window.__game = this; // fejlesztői hozzáférís a belső állapothoz
+    window.__THREE = THREE; // fejlesztői hozzáférís a három.js-hez a próbákhoz
 
     this.startLoop();
   }
@@ -81,9 +98,17 @@ export class Game {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x9ec9e8);
-    this.scene.fog = new THREE.Fog(0x9ec9e8, 45, 175);
+    this.scene.fog = new THREE.Fog(0x9ec9e8, 60, 300);
 
     this.camera = new THREE.PerspectiveCamera(CAMERA.fov, window.innerWidth / window.innerHeight, 0.1, 500);
+
+    // visszapillantó tükör: külön kis céltextúra + hátsó kamera
+    this.mirrorRT = new THREE.WebGLRenderTarget(CAMERA.mirrorSize.w, CAMERA.mirrorSize.h, {
+      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: true,
+    });
+    this.mirrorCam = new THREE.PerspectiveCamera(CAMERA.mirror.fov, CAMERA.mirrorSize.w / CAMERA.mirrorSize.h, 0.2, 400);
+    this.mirrorCam.layers.set(0);
+    this.mirrorCam.layers.enable(1); // a saját autó váza látszódjon a tükörben
   }
 
   initModules() {
@@ -96,6 +121,19 @@ export class Game {
     this.audio = new AudioFX();
     this.effects = new Effects(this.scene, this.camera, $('labels'));
     this.shakeTmp = new THREE.Vector3();
+
+    this.player.setMirrorTexture(this.mirrorRT.texture);
+    this.input.onSignal = (d) => { if (this.state === 'play') this.player.toggleSignal(d); };
+
+    // glTF-modellek (bármikor véletlen: a dobozos vészlátvány is elég)
+    loadCarModels().then((models) => {
+      this.player.setModel(models.player);
+      this.traffic.setModels(models);
+      this.playerHasModel = true;
+    }).catch((err) => {
+      window.__modelErr = String((err && err.stack) || err);
+      console.warn('Modellbetöltés nem sikerült (marad a vészlátvány):', err);
+    });
 
     $('hud').classList.remove('hidden');
     this.hud.updateScore(0);
@@ -157,7 +195,16 @@ export class Game {
     this.scoring.init();
     this.player.invincible = 0;
     this.traffic.clear();
+    // azonnali forgalom: az első másodpercekben is legyen mit kerülgetni
+    // azonnali forgalom: az első másodpercekben is legyen mit kerülgetni
+    // (a közeli szemecek a bal/középső sávba kerülnek, a játékos sávja tiszta)
+    this.traffic.spawn(this.player.pos.z, 0, 25, 1);
+    this.traffic.spawn(this.player.pos.z, 0, 55, 0);
+    this.traffic.spawn(this.player.pos.z, 0, 90, 1);
+    this.traffic.spawn(this.player.pos.z, 0, 140, 2);
+    this.traffic.spawnBehind(this.player); // gyors előlkanyarodó a tükörbe
     this.player.respawnAtLane(2);
+    this.prevLane = 2;
     this.tipT = 1.0;
     this.tipIdx = 0;
     this.setState('play');
@@ -286,6 +333,32 @@ export class Game {
     this.traffic.update(t, this.player, difficulty);
     this.scoring.update(t, this.player.laneIndex(), fwd, this.gasA, this.brakeA);
 
+    // ---- sávváltás + indexelés (KRESZ) ----
+    const lane = this.player.laneIndex();
+    if (lane !== this.prevLane) {
+      const dir = Math.sign(lane - this.prevLane);
+      const p = this.player;
+      // akkor jár a bónusz, ha UGYANEBBA az irányba aktiváltuk az indexet
+      // legalább minLead-tel korábban (és az még él)
+      const led = p.signal === dir && p.signalT >= SIGNAL.minLead && p.signalT <= SIGNAL.autoOff;
+      this.scoring.signalChange(led);
+      if (led) {
+        this.audio.bonus();
+        this.effects.popup(`+${SIGNAL.points} INDEX ✓`, '#ffd54a', p.pos);
+        p.signal = 0; // a váltás után lekapcsoljuk a villogót
+      } else {
+        this.audio.penalty();
+        this.effects.popup(`−${SIGNAL.noSignalPenalty} Index nélkül váltasz sávot!`, '#ff8a80', p.pos);
+      }
+    }
+    this.prevLane = lane;
+
+    // irányjelző kattanás a villogási fázisra
+    const blinkOn = this.player.signalAct() && this.player.blinkPhase < 0.5;
+    if (blinkOn && !this.prevBlinkOn) this.audio.blink();
+    this.prevBlinkOn = blinkOn;
+    this.hud.updateSignal(this.player.signal);
+
     this.effects.tickShake(t);
     this.effects.updateParticles(t);
     this.world.update(this.dist);
@@ -311,6 +384,11 @@ export class Game {
       av: [+this.player.chassis.angularVelocity.y.toFixed(2)],
       wheels: this.player.wheelDbg(),
       dist: Math.round(this.dist), crashCount: this.crashCount,
+      sig: this.player.signal,
+      lane: this.player.laneIndex(),
+      sigOK: this.scoring.parts.signalsOK,
+      sigNo: this.scoring.parts.noSignalCount,
+      model: this.playerHasModel,
     };
   }
 
@@ -334,8 +412,30 @@ export class Game {
 
       // a render mindig fut (kezdőképernyő mögött is látszik a világ)
       this.effects.getShakeOffset(this.shakeTmp);
-      this.player.updateCamera(this.camera, rdt, this.shakeTmp);
+      const cockpit = this.state === 'play';
+      if (cockpit) {
+        // belső nézet: út + belsőtér (a saját karosszéria elrejtődik,
+        // mert a belső elemek a modell héjába esnének — a tükröt a tükör-kamera
+        // különben is láttatja)
+        this.camera.layers.set(0);
+        this.camera.layers.enable(2);
+      } else {
+        this.camera.layers.set(0);
+        this.camera.layers.enable(1); // külső nézet: út + a saját autó váza
+      }
+      this.player.updateCamera(this.camera, rdt, this.shakeTmp, cockpit ? 'cockpit' : 'chase');
       this.camera.updateMatrixWorld();
+
+      // visszapillantó tükör (csak vezetés közben kell): a tükör-kamera egy
+      // kis céltextúrába rajzolja a hátsó nézetet, amelyet a belső tükörüveg mutat.
+      if (cockpit) {
+        this.renderer.shadowMap.enabled = false;
+        this.renderer.setRenderTarget(this.mirrorRT);
+        this.player.positionMirror(this.mirrorCam);
+        this.renderer.render(this.scene, this.mirrorCam);
+        this.renderer.setRenderTarget(null);
+        this.renderer.shadowMap.enabled = true;
+      }
       this.renderer.render(this.scene, this.camera);
     };
     requestAnimationFrame(loop);

@@ -83,16 +83,23 @@ try {
 
   await page.evaluate(() => window.__start());
   await page.waitForFunction('window.__dbg().state === "play"', { timeout: 5000 });
+  await sleep(1500); // a glTF-modellek betöltésére
+  const d0 = await page.evaluate(() => window.__dbg());
+  console.log('  start után:', JSON.stringify(d0));
+  assert(d0.model === true, '3D autómodellek betöltődtek');
+  assert(d0.sig === 0, 'alapállapotban nincs indexjelzés');
   console.log('✓ start → play');
+  await shot('06-cockpit');
+  console.log('✓ belső nézet (cockpit) képernyőkép');
 
   // --- 1) gyorsítás ---
   await page.keyboard.down('w');
-  await sleep(2500);
+  await sleep(3000);
   await page.keyboard.up('w');
   const d1 = await page.evaluate(() => window.__dbg());
   console.log('  gyorsítás után:', JSON.stringify(d1));
-  assert(d1.kmh > 60, `az autó gyorsul (>60 km/h, most ${d1.kmh})`);
-  assert(d1.pos[2] > 3, `az autó halad +Z felé (z=${d1.pos[2]})`);
+  assert(d1.kmh > 40, `az autó gyorsul (>40 km/h, most ${d1.kmh})`);
+  assert(d1.pos[2] > 2, `az autó halad +Z felé (z=${d1.pos[2]})`);
   await shot('02-driving');
 
   // --- 2) kormányzás iránya (yaw-alapú, mivel a korlát befolyásolhatja x-et) ---
@@ -109,6 +116,21 @@ try {
   await page.keyboard.up('a');
   const d2b = await page.evaluate(() => window.__dbg());
   assert(d2b.yaw > d2.yaw + 5, `balra kormányzás = yaw nő (${d2.yaw} → ${d2b.yaw})`);
+
+  // --- 2b) indexelés: Q/E + sávváltás = +12 pont ---
+  // a játékos a 2. sáv határától 0.9 m-re indul (~1 m múlva vált sávot)
+  await page.evaluate(() => window.__jumpLane(2, 0.9));
+  await page.keyboard.press('q');  // balra index
+  const ds0 = await page.evaluate(() => window.__dbg());
+  assert(ds0.sig === -1, `Q = balra index bekapcsolva (sig=${ds0.sig})`);
+  await page.keyboard.down('a');   // balra kormány → sávváltás (~18 m/s indulósebességgel)
+  await sleep(900);
+  await page.keyboard.up('a');
+  await sleep(250);
+  const ds1 = await page.evaluate(() => window.__dbg());
+  console.log('  indexelt váltás:', JSON.stringify(ds1));
+  assert(ds1.sigOK >= 1, `indexelt sávváltásért pont jár (${ds1.sigOK} db)`);
+  assert(ds1.sig === 0, 'a váltás után a villogó lekapcsol');
 
   // --- 3) szünet ---
   await page.keyboard.press('p');

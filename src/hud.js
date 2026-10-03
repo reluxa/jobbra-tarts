@@ -8,7 +8,9 @@ export class HUD {
       lives: $('lives'), ecoFill: $('ecoFill'), ecoVal: $('ecoVal'),
       secFill: $('secFill'), speed: $('speed'), hint: $('hintBox'),
       flash: $('flash'),
+      sigL: $('sigL'), sigR: $('sigR'),
     };
+    this.sigTimer = 0;
     this.best = 0;
     try {
       this.best = parseInt(localStorage.getItem('jobbra_tartas_best') || '0', 10) || 0;
@@ -39,6 +41,21 @@ export class HUD {
     const m = mult.toFixed(1).replace('.', ',');
     this.el.mult.textContent = '×' + m;
     this.el.streak.textContent = streak > 0 ? '✦'.repeat(Math.min(streak, 5)) : '';
+  }
+
+  // indexjelző nyilak (0 = ki, -1 = balra, +1 = jobbra)
+  updateSignal(sig) {
+    if (sig === this.lastSig) return;
+    this.lastSig = sig;
+    const l = this.el.sigL;
+    const r = this.el.sigR;
+    const blink = (el, on) => {
+      if (on) el.style.animation = 'sigblink 1.32s linear infinite';
+      else { el.style.animation = 'none'; el.style.opacity = 0.25; }
+    };
+    if (sig === -1) { blink(l, true); blink(r, false); }
+    else if (sig === 1) { blink(l, false); blink(r, true); }
+    else { blink(l, false); blink(r, false); }
   }
 
   flash() {
