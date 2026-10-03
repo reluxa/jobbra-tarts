@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <link rel="icon" href="data:," />
+  <title>Jobbra tartás — 3D autópálya</title>
+  <style>
+    :root {
+      --hud-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: #0c1620;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      user-select: none; -webkit-user-select: none;
+      touch-action: none;
+    }
+    #game { position: fixed; inset: 0; }
+    #game canvas { display: block; width: 100%; height: 100%; }
+
+    /* ---------- HUD ---------- */
+    #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; z-index: 5; }
+    .hudbox { position: absolute; text-shadow: var(--hud-shadow); }
+
+    #scoreBox { top: 14px; left: 16px; }
+    #scoreBox .lbl { font-size: 12px; letter-spacing: 2px; opacity: 0.75; }
+    #score { font-size: 40px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    #best { font-size: 13px; opacity: 0.65; margin-top: 2px; }
+
+    #myBox { top: 14px; left: 50%; transform: translateX(-50%); text-align: center; font-variant-numeric: tabular-nums; }
+    #mult { font-size: 22px; font-weight: 800; color: #ffd54a; }
+    #streak { font-size: 13px; color: #ffd54a; opacity: 0.9; }
+    #lives { font-size: 15px; letter-spacing: 3px; margin-top: 2px; }
+
+    #ecoBox { top: 14px; right: 16px; width: 210px; }
+    #ecoBox .lbl { font-size: 12px; letter-spacing: 2px; opacity: 0.8; margin-bottom: 4px; display: flex; justify-content: space-between; }
+    #ecoBar { height: 14px; border-radius: 8px; background: rgba(255, 255, 255, 0.15); overflow: hidden; box-shadow: inset 0 0 4px rgba(0,0,0,0.4); }
+    #ecoFill { height: 100%; width: 50%; background: linear-gradient(90deg, #e53935, #fdd835 55%, #43a047); border-radius: 8px; transition: width 0.12s linear; }
+    #secBar { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.12); margin-top: 6px; overflow: hidden; }
+    #secFill { height: 100%; width: 100%; background: #29b6f6; }
+
+    #speedBox { bottom: 16px; right: 18px; text-align: right; }
+    #speed { font-size: 54px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+    #speedUnit { font-size: 14px; opacity: 0.7; }
+
+    #hintBox { bottom: 18px; left: 50%; transform: translateX(-50%); text-align: center; font-size: 15px; opacity: 0.9; max-width: 90%; }
+    #hintBox small { display: block; font-size: 12px; opacity: 0.6; margin-top: 4px; }
+
+    /* 3D-be vetített feliratok */
+    #labels { position: fixed; inset: 0; pointer-events: none; z-index: 6; }
+    .pop3d {
+      position: absolute; transform: translate(-50%, -100%);
+      font-weight: 800; font-size: 22px; text-shadow: var(--hud-shadow);
+      opacity: 1; transition: opacity 0.35s ease;
+      white-space: nowrap;
+    }
+
+    /* ---------- Átfedések ---------- */
+    .overlay {
+      position: fixed; inset: 0; z-index: 10;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: rgba(4, 12, 20, 0.82); color: #fff; text-align: center;
+      padding: 24px;
+    }
+    .overlay.hidden { display: none; }
+    .overlay h1 { font-size: 56px; letter-spacing: 6px; font-weight: 900; margin-bottom: 6px; text-shadow: 0 0 30px rgba(41, 182, 246, 0.5); }
+    .overlay h2 { font-size: 18px; font-weight: 500; opacity: 0.8; margin-bottom: 26px; }
+    .rules { max-width: 720px; text-align: left; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 26px; margin-bottom: 30px; font-size: 15px; line-height: 1.45; }
+    .rules .good { color: #81d4fa; }
+    .rules .bad { color: #ff8a80; }
+    .rules .gold { color: #ffd54a; }
+    .btn {
+      pointer-events: auto; cursor: pointer;
+      font-size: 22px; font-weight: 800; letter-spacing: 2px;
+      padding: 16px 52px; border: none; border-radius: 14px;
+      background: linear-gradient(180deg, #29b6f6, #0288d1); color: #fff;
+      box-shadow: 0 8px 24px rgba(41, 182, 246, 0.4);
+      transition: transform 0.08s ease;
+    }
+    .btn:hover { transform: translateY(-2px) scale(1.02); }
+    kbd { background: rgba(255,255,255,0.14); border-radius: 6px; padding: 2px 8px; font-size: 13px; font-family: inherit; }
+    #pauseMsg { font-size: 40px; font-weight: 900; letter-spacing: 8px; }
+    #overTitle { color: #ff5252; text-shadow: 0 0 30px rgba(255, 82, 82, 0.5); }
+    table.break { margin: 0 auto 26px; border-collapse: collapse; font-size: 16px; color: #dde7ee; }
+    table.break td { padding: 5px 26px; text-align: right; font-variant-numeric: tabular-nums; }
+    table.break td:first-child { text-align: left; }
+    table.break tr.total td { border-top: 2px solid rgba(255,255,255,0.3); font-weight: 800; color: #fff; font-size: 20px; }
+    #overBest { opacity: 0.7; margin-top: 8px; font-size: 14px; }
+
+    /* ---------- Érintőgombok ---------- */
+    #touch { position: fixed; inset: 0; z-index: 4; pointer-events: none; display: none; }
+    #touch .tbtn {
+      pointer-events: auto; position: absolute; width: 74px; height: 74px; border-radius: 50%;
+      background: rgba(255, 255, 255, 0.12); border: 2px solid rgba(255, 255, 255, 0.25);
+      color: #fff; font-size: 30px; font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #touch .tbtn:active { background: rgba(255, 255, 255, 0.28); }
+    #tL  { left: 18px; bottom: 150px; }
+    #tR  { left: 106px; bottom: 150px; }
+    #tGas  { right: 106px; bottom: 150px; }
+    #tBrk  { right: 18px; bottom: 150px; }
+    @media (pointer: coarse) { #touch { display: block; } }
+
+    #flash { position: fixed; inset: 0; background: #ff1744; opacity: 0; pointer-events: none; z-index: 7; transition: opacity 0.4s ease; }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+
+  <div id="hud" class="hidden">
+    <div class="hudbox" id="scoreBox">
+      <div class="lbl">PONT</div>
+      <div id="score">0</div>
+      <div id="best">legjobb: 0</div>
+    </div>
+    <div class="hudbox" id="myBox">
+      <div id="mult">×1.0</div>
+      <div id="streak"></div>
+      <div id="lives"></div>
+    </div>
+    <div class="hudbox" id="ecoBox">
+      <div class="lbl"><span>SIMA VEZETÉS</span><span id="ecoVal">50%</span></div>
+      <div id="ecoBar"><div id="ecoFill"></div></div>
+      <div id="secBar"><div id="secFill"></div></div>
+    </div>
+    <div class="hudbox" id="speedBox">
+      <div id="speed">0</div>
+      <div id="speedUnit">km/h</div>
+    </div>
+    <div class="hudbox" id="hintBox"></div>
+  </div>
+
+  <div id="labels"></div>
+  <div id="flash"></div>
+
+  <div id="touch">
+    <button class="tbtn" id="tL" aria-label="Balra">◀</button>
+    <button class="tbtn" id="tR" aria-label="Jobbra">▶</button>
+    <button class="tbtn" id="tGas" aria-label="Gáz">▲</button>
+    <button class="tbtn" id="tBrk" aria-label="Fék">▼</button>
+  </div>
+
+  <div class="overlay" id="startOverlay">
+    <h1>JOBBRA TARTÁS</h1>
+    <h2>Háromsávos autópálya-szimulátor — KRESZ-érzés, gazdaságos vezetéssel</h2>
+    <div class="rules">
+      <div class="good">➤ A <b>jobb szélső sáv</b> a haladási sávod: ott haladva folyamatosan pontot kapsz.</div>
+      <div class="good">➤ <b>Előzni csak balról szabad:</b> ki balra – előzés – vissza jobbra, ezért bónusz jár.</div>
+      <div class="bad">➤ Ha <b>jobbról előznek</b>, túl balfelé kószálsz: pontlevonás.</div>
+      <div class="gold">➤ Gáz/fék: minél <b>simábban</b> vezetsz, annál nagyobb a <b>bónusz 10 mp-enként</b> — akár ×3 szorzóval.</div>
+      <div class="bad">➤ Ütközés = baleset: −150 pont, élet és a bónusz-szorzó odavész.</div>
+      <div>➤ Kamion előtt a jobb sávban? <b>Dönts:</b> időben fékezz, vagy előzz szabályosan.</div>
+    </div>
+    <button class="btn" id="startBtn">▶ INDÍTÁS</button>
+    <div style="margin-top:18px; opacity:0.65; font-size:13px;">
+      <kbd>W</kbd> gáz &nbsp; <kbd>S</kbd> fék &nbsp; <kbd>A</kbd>/<kbd>D</kbd> vagy <kbd>←→</kbd> kormányzás &nbsp; <kbd>P</kbd> szünet &nbsp; <kbd>M</kbd> hang
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="pauseOverlay">
+    <div id="pauseMsg">SZÜNET</div>
+    <div style="opacity:0.7; margin-top:10px;"><kbd>P</kbd> a folytatáshoz</div>
+  </div>
+
+  <div class="overlay hidden" id="overOverlay">
+    <h1 id="overTitle">BALESET VÉGE</h1>
+    <h2>Kifogytál az életekből</h2>
+    <table class="break" id="breakTable"></table>
+    <button class="btn" id="restartBtn">↻ ÚJRA</button>
+    <div id="overBest"></div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
