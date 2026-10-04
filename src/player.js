@@ -230,8 +230,16 @@ export class Player {
   }
 
   setMirrorTexture(tex) {
-    if (this.mirrorGlass) this.mirrorGlass.material.map = tex;
-    if (this.mirrorGlass) this.mirrorGlass.material.needsUpdate = true;
+    if (!this.mirrorGlass) return;
+    // Fontos optikai részlet: a tükör-kamera a vezető szeme tükörtisztítású,
+    // hátra néző képét adja — de a valódi síktükör ezt a képet HORIZONTÁLISAN
+    // FELFORDÍTVA mutatja (ezért a tükörben a feliratok visszafelé olvashatók).
+    // Így a kép felületre vetésekor a textúrát UV-á alakítással megfordítjuk.
+    tex.center.set(0.5, 0.5);
+    tex.offset.set(1, 0);
+    tex.repeat.set(-1, 1);
+    this.mirrorGlass.material.map = tex;
+    this.mirrorGlass.material.needsUpdate = true;
   }
 
   // glTF-modell a vészlátvány helyére (a belső tér marad)
