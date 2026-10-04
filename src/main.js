@@ -336,6 +336,11 @@ export class Game {
     this.player.step({ throttle: this.gasA, brake: this.brakeA, steer: inp.steer }, t, this.effects, this.audio);
     // a kerekes jármű ütközési/erő egyenleteit a világ-léptetés oldja meg
     this.worldPhys.step(t);
+    // a világ-léptetés a kasztnit tovább mozgathatta (testeintegráló + kontaktok),
+    // ezért a vizuálist a LÉPÉS UTÁN szinkronizáljuk — így a csoport (és a ráépülő
+    // kokpit-kamera) sosem marad le egy lépésnyit sem a testről. dt=0: a kerekek
+    // forgása ne duplázódjon (azt a step() már megtette).
+    this.player.syncVisual(0);
     if (this.player.invincible > 0) this.player.invincible -= t;
 
     const fwd = Math.max(0, this.player.fwdSpeed);

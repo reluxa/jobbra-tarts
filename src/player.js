@@ -197,19 +197,20 @@ export class Player {
 
     // belső visszapillantó tükör: a vezető feje fölé, a vezető felé dőlve.
     // A keret tömör doboz, ezért a tükörüveget a keret ELÉRE (a kamera felé)
-    // tesszük, hogy ne takarja.
-    const mirrorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.15, 0.03), intMat);
-    mirrorFrame.position.set(0.30, 1.10, 0.66);
+    // tesszük, hogy ne takarja. (Méret a valós arányokhoz: a széleink a kamera
+    // szemmagassága felett, a tetőkárpit vonalában lóg, így nem takarja az utat.)
+    const mirrorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.11, 0.028), intMat);
+    mirrorFrame.position.set(0.10, 1.16, 0.95);
     mirrorFrame.rotation.x = -0.32;
     this.intGroup.add(mirrorFrame);
     // a vezető felé kell néznie a felületnek (a plane alapból +Z-t néz,
     // a kamera -Z felől nézi) → a Y-ge 180°-kal elforgatjuk + DoubleSide
     // biztonsággal (a tükörben a kép tükörfordítottan látszik, ami valósághű).
     this.mirrorGlass = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.46, 0.12),
+      new THREE.PlaneGeometry(0.27, 0.08),
       new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })
     );
-    this.mirrorGlass.position.set(0.30, 1.10, 0.615); // a keret élénél a vezető felé
+    this.mirrorGlass.position.set(0.10, 1.16, 0.91); // a keret élénél a vezető felé
     this.mirrorGlass.rotation.y = Math.PI;
     this.mirrorGlass.rotation.x = -0.32;
     this.intGroup.add(this.mirrorGlass);
@@ -385,13 +386,15 @@ export class Player {
       // lokális offset (vezető oldala +X, azaz bal) a jármű yaw-jával forgatva.
       // a y A FÖLD feletti abszolút magasság (a kasztni középpjához MÉG hozzáadva
       // 0.62-vel magasabban ülnénk, mint a tető)
+      // FONTOS: a pozíció NEM lerpelt (hard-glue) — a lerp sebesség-arányos
+      // lemaradást okoz (117 km/h-nál ~4 m), azaz gyorsuláskor a kamera
+      // „kicsúszna” az ülésből. Csak a TEKINTET simított (finom, nem okoz dudorodást).
       this.v3.set(o.x, o.y, o.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw());
-      const desired = this.v3.clone().set(p.x + this.v3.x, o.y, p.z + this.v3.z);
+      const desired = this.v3.set(p.x + this.v3.x, o.y, p.z + this.v3.z);
+      camera.position.copy(desired);
       const look = this.v3.set(p.x + fwd.x * o.lookAhead, o.lookY, p.z + fwd.z * o.lookAhead);
-      const k = 1 - Math.exp(-dt * 8);
-      this.camPos.lerp(desired, k);
+      const k = 1 - Math.exp(-dt * 6);
       this.camLook.lerp(look, k);
-      camera.position.copy(this.camPos);
       if (shakeOffset) camera.position.add(shakeOffset);
       camera.lookAt(this.camLook);
       return;
