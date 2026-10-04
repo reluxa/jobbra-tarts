@@ -17,7 +17,9 @@ loader.setDRACOLoader(draco);
 // Az autót a kívánt hosszra méretezi, az orrát +Z felé fordítja (a glTF-konkvenció
 // szerint előre = +Z), vízszintesen középre húzza, és az alját a talajszintre
 // (a kerekek a 0-n állnak). A visszaadott Group közvetlenül beilleszthető.
-function normalizeModel(scene, targetLen) {
+// flipYaw: MODELS.flip jelzi, hogy a modell orra -Z-be néz (pl. a ferrari.glb),
+// ilyenkor 180°-kal elfordítjuk.
+function normalizeModel(scene, targetLen, flipYaw) {
   const g = new THREE.Group();
   g.add(scene.clone(true));
   const box = new THREE.Box3().setFromObject(g);
@@ -25,6 +27,7 @@ function normalizeModel(scene, targetLen) {
 
   // ha a modell „nyugatról nézett” (az X a hosszabb vízszintes tengely), fordítsuk meg
   if (size.x > size.z) g.rotation.y = Math.PI / 2;
+  if (flipYaw) g.rotation.y += Math.PI;
 
   box.setFromObject(g);
   const s = targetLen / Math.max(0.001, box.getSize(new THREE.Vector3()).z);
@@ -50,11 +53,11 @@ export async function loadCarModels() {
     loader.loadAsync(MODELS.truck),
   ]);
   return {
-    player: normalizeModel(ferrari.scene, MODELS.playerLen),
+    player: normalizeModel(ferrari.scene, MODELS.playerLen, MODELS.flip[MODELS.player]),
     sedans: [
-      normalizeModel(ferrari.scene, MODELS.carLen),
-      normalizeModel(sedan.scene, MODELS.carLen),
+      normalizeModel(ferrari.scene, MODELS.carLen, MODELS.flip[MODELS.sedans[0]]),
+      normalizeModel(sedan.scene, MODELS.carLen, MODELS.flip[MODELS.sedans[1]]),
     ],
-    truck: normalizeModel(truck.scene, MODELS.truckLen),
+    truck: normalizeModel(truck.scene, MODELS.truckLen, MODELS.flip[MODELS.truck]),
   };
 }

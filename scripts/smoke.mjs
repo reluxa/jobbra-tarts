@@ -123,12 +123,21 @@ try {
   await page.keyboard.press('q');  // balra index
   const ds0 = await page.evaluate(() => window.__dbg());
   assert(ds0.sig === -1, `Q = balra index bekapcsolva (sig=${ds0.sig})`);
-  await page.keyboard.down('a');   // balra kormány → sávváltás (~18 m/s indulósebességgel)
-  await sleep(900);
+  // balra kormányzás, amíg a keresztezés meg nem történik (a SwiftShader-frame-ideje
+  // ingadozik → a rögzített nyomvatartás bunkó; 100 ms-onként polloljuk a sávhatárt,
+  // max 2 s — ez az index autoOff (3 s) előtt befejeződik)
+  const LANE2_LEFT = -1.875; // sáv2→sáv1 határ (laneCenterX(1) + fél sáv)
+  await page.keyboard.down('a');
+  let crossed = false;
+  for (let i = 0; i < 20 && !crossed; i++) {
+    await sleep(100);
+    crossed = await page.evaluate((b) => window.__game.player.chassis.position.x > b, LANE2_LEFT);
+  }
   await page.keyboard.up('a');
-  await sleep(250);
+  await sleep(300);
   const ds1 = await page.evaluate(() => window.__dbg());
   console.log('  indexelt váltás:', JSON.stringify(ds1));
+  assert(crossed, `a sávváltás megtörtént (x=${ds1.pos[0]})`);
   assert(ds1.sigOK >= 1, `indexelt sávváltásért pont jár (${ds1.sigOK} db)`);
   assert(ds1.sig === 0, 'a váltás után a villogó lekapcsol');
 

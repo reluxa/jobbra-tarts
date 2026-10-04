@@ -112,4 +112,7 @@ export const MODELS = {
   playerLen: 4.3,
   carLen: 4.35,
   truckLen: 6.4,
+  // a threejs.org ferrari.glb orra -Z-be néz, így ezt a fájlt 180°-kal meg kell
+  // fordítani; a sedan (ClearCoatCarPaint) és a truck orra már +Z-be (+ elöl van az orr).
+  flip: { '/models/ferrari.glb': true },
 };

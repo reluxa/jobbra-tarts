@@ -64,10 +64,22 @@ export class Game {
     window.__forceSection = () => this.scoring.settleSection();
     window.__jumpLane = (lane, edge = 0) => {
       if (this.state !== 'play') return;
+      // determinisztikus teszt: a teleport helyéről kitakarítjuk a forgalmat,
+      // különben egy kinematikus autó löki a dinamikus játékost (flakiség).
+      const pz = this.player.pos.z;
+      for (let i = this.traffic.cars.length - 1; i >= 0; i--) {
+        const c = this.traffic.cars[i];
+        if (Math.abs(c.body.position.z - pz) < 25) {
+          this.worldPhys.removeBody(c.body);
+          this.scene.remove(c.meshes);
+          this.traffic.byId.delete(c.body.id);
+          this.traffic.cars.splice(i, 1);
+        }
+      }
       this.player.respawnAtLane(lane);
       if (edge) this.player.chassis.position.x = laneCenterX(lane) + edge;
-      this.player.speed = 18;   // indulósebesség: a teszt ne a gyorsítástól függjön
-      this.player.fwdSpeed = 18;
+      this.player.speed = 14;   // indulósebesség: a teszt ne a gyorsítástól függjön
+      this.player.fwdSpeed = 14;
       this.prevLane = lane;
     };
     window.__rayTest = (fromX, fromY, toY) => {
