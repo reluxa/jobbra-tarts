@@ -139,7 +139,17 @@ export class Game {
 
     this.player.setMirrorTexture(this.mirrorRT.texture);
     this.input.onSignal = (d) => { if (this.state === 'play') this.player.toggleSignal(d); };
-    this.input.onLane = (d) => { if (this.state === 'play') this.player.requestLaneChange(d); };
+    this.input.onLane = (d) => {
+      if (this.state !== 'play') return;
+      const from = this.player.laneIndex();
+      const to = Math.max(0, Math.min(2, from + d));
+      if (to !== from && !this.traffic.canChangeTo(to, this.player.pos.z)) {
+        // a cél-sáv foglalt — ne guruljunk bele: ne váltsunk, és jelezzük
+        this.effects.popup('Sáv foglalt!', '#ffd54a', this.player.pos);
+        return;
+      }
+      this.player.requestLaneChange(d);
+    };
 
     // glTF-modellek (bármikor véletlen: a dobozos vészlátvány is elég)
     loadCarModels().then((models) => {

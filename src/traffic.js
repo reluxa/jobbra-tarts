@@ -298,11 +298,28 @@ export class Traffic {
   }
 
   // Üres-e a cél-sáv a kellő „ablakban” egy NPC sávváltáshoz?
-  laneClear(c, toLane) {
+  // (a JÁTÉKOS-t is figyelembe vesszük — különben belethernk egy NPC-k bevághat)
+  laneClear(c, toLane, player) {
     for (const o of this.cars) {
       if (o === c || o.ghost || o.lane !== toLane) continue;
       const d = o.body.position.z - c.body.position.z;
       if (Math.abs(d) < 46) return false; // ~23 m elöl + 23 m mögött
+    }
+    if (player && player.laneIndex() === toLane) {
+      const d = player.pos.z - c.body.position.z;
+      if (Math.abs(d) < 46) return false; // a JÁTÉKOS a cél-sávban, túl közel
+    }
+    return true;
+  }
+
+  // A JÁTÉKOS cél-sávváltásához: van-e szabad hely a cél-sávban?
+  //  -20 m mögötte … +80 m előtte pú colru.  (A főütközés ebből jön: a játékos
+  //  úgy vált sávot, hogy a cél-sávban már van autó.)
+  canChangeTo(to, z) {
+    for (const o of this.cars) {
+      if (o.ghost || o.lane !== to) continue;
+      const d = o.body.position.z - z; // elöl pozitív
+      if (d > -20 && d < 80) return false;
     }
     return true;
   }
@@ -319,7 +336,7 @@ export class Traffic {
       const L = c.lane, blk = this.blockingCar(c, player);
 
       // (1) Előzés balra, ha lassú van előttünk és balra szabad.
-      if (blk && L < 2 && this.laneClear(c, L + 1)) {
+      if (blk && L < 2 && this.laneClear(c, L + 1, player)) {
         this.startLaneChange(c, L + 1);
         c.returnLane = L;
         c.returnT = 5 + Math.random() * 5;
@@ -329,7 +346,7 @@ export class Traffic {
       // (2) Visszatérés jobbra a lassú egy állandó tempónál.
       if (L > 0 && c.returnLane !== undefined) {
         if (c.returnT !== undefined) c.returnT -= dt;
-        if (c.returnT <= 0 && !blk && this.laneClear(c, L - 1)) {
+        if (c.returnT <= 0 && !blk && this.laneClear(c, L - 1, player)) {
           this.startLaneChange(c, L - 1);
           c.returnLane = undefined;
           c.returnT = undefined;
