@@ -421,6 +421,18 @@ export class Traffic {
     this.byId.delete(entry.body.id);
   }
 
+  // Minden járművet töröl a becsapásnál (világ-tekercselés): a pálya ugyanaz,
+  // de a forgalmat frissen rendeljük a becsapott (wrapTo-beli) jármű elé.
+  clear() {
+    for (const c of this.cars) {
+      this.world.removeBody(c.body);
+      this.scene.remove(c.meshes);
+      this.byId.delete(c.body.id);
+    }
+    this.cars.length = 0;
+    this.spawnTimer = 0.3; // gyorsan újra induljon a spawnolás
+  }
+
   // Világ-visszatekerés: minden járműtestet −Z felé tolunk delta-val.
   wrap(delta) {
     for (const c of this.cars) {

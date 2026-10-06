@@ -406,13 +406,15 @@ export class Game {
     this.effects.tickShake(t);
     this.effects.updateParticles(t);
     this.world.update(this.dist);
-    // világ-végtelenítés: ha a játékos a vége felé ér, tekercselünk
+    // világ-„végtelenítés": a világ STATIKUS [start,end]; ha a játékos a far
+    // felé ér, őt a wrapTo-ba teleportáljuk vissza (a világ nem tolódik, így
+    // előtte mindig teljes út van — ez újrafinalizál); a forgalmat frissen
+    // rendeljük a becsapásnál.
     if (this.player.pos.z > WORLD.wrapAt) {
       const snapZ = this.player.pos.z - WORLD.wrapTo;
       const delta = Math.round(snapZ / WORLD.tile) * WORLD.tile;
       this.player.wrapZ(delta);
-      this.world.wrap(delta);
-      this.traffic.wrap(delta);
+      this.traffic.clear();
     }
     // árnyékkamera kövesse a játékost (különben az árnyék a startnál reked)
     this.world.shadowTarget.position.copy(this.player.pos);

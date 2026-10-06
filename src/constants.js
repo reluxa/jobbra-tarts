@@ -15,10 +15,10 @@ export const GROUND_Y = 0;
 // a nézet változatlan marad (nincs látható ugrás). A textúra a 12 m-es tile-el
 // ismétlődik, ezért a tekercs a tile többszöröse kell legyen a zökkenőmentességhez.
 export const WORLD = {
-  length: 4000,    // út/terep teljes hossza (m)
-  start: -500,     // a z = start szélétől húzódik
-  wrapAt: 2500,    // ha a játékos ideér, tekercselünk (a farok elé)
-  wrapTo: -500,    // ide ültetjük vissza a játékost
+  length: 4950,   // út/terep teljes hossza (m) — statikus; a játékost a wrapTo-ba teleportáljuk
+  start: -1100,   // a z = start széltől húzódik (start = wrapTo mögött, a tükörnek)
+  wrapAt: 1900,   // ha a játékos ideér, a start (wrapTo) felé tekercseljük VISSZA
+  wrapTo: -500,   // ide ültetjük vissza a játékost minden ciklusban
   tile: 12,        // textúra-periódus (m) — a tekercs ehhez igazodik
 };
 
