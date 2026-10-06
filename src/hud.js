@@ -26,21 +26,23 @@ export class HUD {
     this.el.speed.textContent = Math.round(kmh);
   }
 
-  updateEco(eco, sectionFrac) {
-    this.el.ecoVal.textContent = Math.round(eco) + '%';
-    this.el.ecoFill.style.width = eco + '%';
-    this.el.ecoFill.style.background = `hsl(${120 * eco / 100}, 85%, 42%)`;
-    this.el.secFill.style.width = (sectionFrac * 100) + '%';
+  updateEnergy(pct, gateFrac) {
+    this.el.ecoVal.textContent = Math.round(pct) + '%';
+    this.el.ecoFill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+    // piros ha veszélyben az idő, zöld ha bőven van
+    const hue = Math.max(6, (pct / 100) * 120);
+    this.el.ecoFill.style.background = `hsl(${hue}, 85%, 42%)`;
+    this.el.secFill.style.width = (gateFrac * 100) + '%';
+  }
+
+  updateGate(gates, difficulty, req) {
+    this.el.mult.textContent = 'KAPU ' + (gates + 1);
+    this.el.streak.textContent =
+      'kell ≈ ' + (req || 0).toFixed(1) + ' km/h · ' + Math.round(difficulty * 100) + '%';
   }
 
   updateLives(n) {
     this.el.lives.textContent = '❤'.repeat(n) + '🖤'.repeat(Math.max(0, 3 - n));
-  }
-
-  updateMult(mult, streak) {
-    const m = mult.toFixed(1).replace('.', ',');
-    this.el.mult.textContent = '×' + m;
-    this.el.streak.textContent = streak > 0 ? '✦'.repeat(Math.min(streak, 5)) : '';
   }
 
   // indexjelző nyilak (0 = ki, -1 = balra, +1 = jobbra)

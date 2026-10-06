@@ -57,6 +57,18 @@ export class Traffic {
     this.createEntry(lane, false, speed, z);
   }
 
+  // A legközelebbi jármű elöl (magasabb z) az adott sávban — a radar-tempomathoz.
+  // (ghost-t kihagyjuk; maxDist felett nem érdekel.)  Visszaadja {speed, gap} vagy null.
+  aheadInLane(lane, z, maxDist = 140) {
+    let best = null, bestDist = Infinity;
+    for (const c of this.cars) {
+      if (c.ghost || c.lane !== lane) continue;
+      const d = c.body.position.z - z;
+      if (d > 2 && d < bestDist && d < maxDist) { bestDist = d; best = c; }
+    }
+    return best ? { speed: best.speed, gap: bestDist } : null;
+  }
+
   createEntry(lane, truck, speed, z) {
     const len = truck ? MODELS.truckLen : MODELS.carLen;
     const body = new CANNON.Body({
@@ -69,6 +81,10 @@ export class Traffic {
     const meshes = this.buildVisual(lane, truck, len, speed);
     const entry = {
       body, meshes, lane, speed, truck, len, passed: false, ghost: false,
+      baseSpeed: speed,   // saját utazósebessége (a fékezés után ide tér vissza)
+      changeLane: null,   // cél-sáv egy folyamatban lévő NPC sávváltásnál (null = nincs)
+      aiT: Math.random() * 2,   // NPC mérlegelési óra (staggered indításhoz)
+      returnLane: undefined, returnT: undefined,  // előzés utáni visszatérés jobbra
     };
     this.cars.push(entry);
     this.byId.set(body.id, entry);
@@ -149,6 +165,8 @@ export class Traffic {
     const byLane = [[], [], []];
     for (const c of this.cars) {
       c.body.position.z += c.speed * dt;
+      // folyamatban lévő NPC sávváltás: az x-cél felé gurulunk
+      if (c.changeLane != null) this.advanceLaneChange(c, dt);
       this.syncMesh(c);
       if (c.ghost) continue;
       byLane[c.lane].push(c);
@@ -162,6 +180,40 @@ export class Traffic {
         }
       }
     }
+
+    // NPC-követés: a sávban elöl haladó LASSABB jármű mögött lassítunk
+    // (NPC vagy akár a JÁTÉKOS — különben hátulról beléjük megy).
+    for (const c of this.cars) {
+      if (c.ghost) continue;
+      let braked = false;
+      const f = this.frontInLane(c, player);
+      if (f) {
+        const fspeed = f.isPlayer ? player.fwdSpeed : f.o.speed;
+        const closing = c.speed - fspeed;
+        if (closing > 0.5) {
+          // min. kívánt követési térköz a sebességkülönbség függvényében
+          const safe = 4 + closing * 0.85;
+          if (f.gap < safe + 16) {
+            const k = 1 - (f.gap / (safe + 16));
+            const brake = Math.max(2, closing * 2.2 * (0.3 + 0.7 * k));
+            c.speed = Math.max(fspeed, c.speed - brake * dt);
+            braked = true;
+          }
+        } else if (f.gap < 3) {
+          c.speed = fspeed; // már majdnem rajta — fixen lassít
+          braked = true;
+        }
+      }
+      // ha szabad az út, térj vissza a saját tempódra (enyhe gyorsítás/lassítás)
+      if (!braked) {
+        const d = Math.min(1.2 * dt, Math.abs(c.baseSpeed - c.speed));
+        if (c.speed < c.baseSpeed) c.speed += d;
+        else if (c.speed > c.baseSpeed) c.speed -= d;
+      }
+    }
+
+    // NPC-előzés: balra ha lassú van előtt, majd vissza jobbra (akár a játékos)
+    this.npcAI(dt, player);
 
     // haladási események: átment-e mögénk
     const pz = player.pos.z;
@@ -200,6 +252,94 @@ export class Traffic {
   // A látvány-mesh követi a fizikai testet (különben láthatatlan volna az autó).
   syncMesh(c) {
     c.meshes.position.set(c.body.position.x, c.body.position.y, c.body.position.z);
+  }
+
+  // NPC sávváltás folyamata: x gurul a cél-sáv közepére, majd fixáljuk a sávot.
+  advanceLaneChange(c, dt) {
+    const tx = laneCenterX(c.changeLane);
+    const diff = tx - c.body.position.x;
+    const step = Math.max(-6 * dt, Math.min(6 * dt, diff));
+    c.body.position.x += step;
+    if (Math.abs(tx - c.body.position.x) < 0.02) {
+      c.body.position.x = tx;
+      c.lane = c.changeLane;
+      c.changeLane = null;
+    }
+  }
+
+  // A legközelebbi jármű elöl ugyanabban a sávban (NPC vagy a játékos)
+  frontInLane(c, player) {
+    let best = null, bd = Infinity, len = 2;
+    for (const o of this.cars) {
+      if (o === c || o.ghost || o.lane !== c.lane) continue;
+      const d = o.body.position.z - c.body.position.z;
+      if (d > 0 && d < bd) { bd = d; best = o; len = o.len; }
+    }
+    if (player && c.lane === player.laneIndex()) {
+      const d = player.pos.z - c.body.position.z;
+      if (d > 0 && d < bd) { bd = d; best = { player: true }; len = 4.3; }
+    }
+    return best ? { o: best, isPlayer: best.player === true, gap: bd, len } : null;
+  }
+
+  // Van-e lassabb jármű közvetlenül elöl ugyanabban a sávban (NPC vagy játékos)?
+  blockingCar(c, player) {
+    let best = null, bd = Infinity;
+    for (const o of this.cars) {
+      if (o === c || o.ghost || o.lane !== c.lane) continue;
+      const d = o.body.position.z - c.body.position.z;
+      if (d > 0 && d < bd && o.speed < c.speed - 4) { bd = d; best = o; }
+    }
+    if (player && c.lane === player.laneIndex()) {
+      const d = player.pos.z - c.body.position.z;
+      if (d > 0 && d < bd && player.fwdSpeed < c.speed - 4) { bd = d; best = { player: true }; }
+    }
+    return best ? { o: best, isPlayer: best.player === true, gap: bd } : null;
+  }
+
+  // Üres-e a cél-sáv a kellő „ablakban” egy NPC sávváltáshoz?
+  laneClear(c, toLane) {
+    for (const o of this.cars) {
+      if (o === c || o.ghost || o.lane !== toLane) continue;
+      const d = o.body.position.z - c.body.position.z;
+      if (Math.abs(d) < 46) return false; // ~23 m elöl + 23 m mögött
+    }
+    return true;
+  }
+
+  // NPC-előzés AI: balra ha lassú van előtt (NPC vagy játékos), majd vissza jobbra.
+  npcAI(dt, player) {
+    for (const c of this.cars) {
+      if (c.ghost) continue;
+      c.aiT -= dt;
+      if (c.changeLane !== null) continue;
+      if (c.aiT > 0) continue;
+      c.aiT = 1.2 + Math.random() * 1.8;
+
+      const L = c.lane, blk = this.blockingCar(c, player);
+
+      // (1) Előzés balra, ha lassú van előttünk és balra szabad.
+      if (blk && L < 2 && this.laneClear(c, L + 1)) {
+        this.startLaneChange(c, L + 1);
+        c.returnLane = L;
+        c.returnT = 5 + Math.random() * 5;
+        continue;
+      }
+
+      // (2) Visszatérés jobbra a lassú egy állandó tempónál.
+      if (L > 0 && c.returnLane !== undefined) {
+        if (c.returnT !== undefined) c.returnT -= dt;
+        if (c.returnT <= 0 && !blk && this.laneClear(c, L - 1)) {
+          this.startLaneChange(c, L - 1);
+          c.returnLane = undefined;
+          c.returnT = undefined;
+        }
+      }
+    }
+  }
+
+  startLaneChange(c, to) {
+    c.changeLane = to;
   }
 
   // A KRESZ-szabályokból eredő pontozás az elhaladás pillanatában.
@@ -267,7 +407,7 @@ export class Traffic {
     red.castShadow = true;
     this.scene.add(red);
 
-    const entry = { body, meshes: red, lane, speed, truck: false, len, passed: true, ghost: true };
+    const entry = { body, meshes: red, lane, speed, truck: false, len, passed: true, ghost: true, baseSpeed: speed, changeLane: null, aiT: 0 };
     this.cars.push(entry);
     this.byId.set(body.id, entry);
     return entry;
@@ -279,5 +419,13 @@ export class Traffic {
     this.world.removeBody(entry.body);
     this.scene.remove(entry.meshes);
     this.byId.delete(entry.body.id);
+  }
+
+  // Világ-visszatekerés: minden járműtestet −Z felé tolunk delta-val.
+  wrap(delta) {
+    for (const c of this.cars) {
+      c.body.position.z -= delta;
+      this.syncMesh(c);
+    }
   }
 }

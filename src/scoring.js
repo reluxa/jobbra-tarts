@@ -1,71 +1,80 @@
-// Pontrendszer: jobbra tartás + előzés/balon-araszolás szabályai + gazdaságossági
-// szakasz-bónusz. A gáz/fék analóg értéket (0..1) kap, hogy a finom vezetésnek
-// legyen tétje: a "rángatós" használat vágja a simaság-mérőt.
-import { ECO, SCORE, SIGNAL } from './constants.js';
+// Pontrendszer: kapu-közötti időköltségvetés + jobbra tartás + indexelés + baleset.
+//
+// A játék kapuk közt halad.  Minden kapunak „időköltségvetés” jut a kért
+// átlagsebességből:  idő = táv / kértÁtlag.  A kapu-óra a következő kapuig fogy,
+// és a LANE szerint OSZTOTT ütemben (laneRateByLane): a külső (jobb) sáv a
+// leglassabb ütésű (nyerő), a belső (bal) sáv 1.8-szor gyorsabban apasztja.
+// Így „csak jobbra tartva lehet nyerni”: aki belső/középső sávban kóborol,
+// kifolyik az ideje.  Az időköltségvetést a kért átlag zárja a nehézséggel nő.
+//
+// A büntetések (index nélküli váltás, bevágás) szintén az órát apasztják, hogy
+// látható legyen a hatásuk (az időbar pirosra ad, miközben a HUD mutatja a %-ot).
+import { SCORE, SIGNAL, laneRateByLane, reqAvg, PEN } from './constants.js';
 
 export class Scoring {
   constructor() {
-    this.onSection = null; // (bonus, avgEco, mult, streak) => void
     this.init();
   }
 
   init() {
     this.score = 0;
     this.parts = {
-      right: 0, overtake: 0, overtakes: 0,
-      bonus: 0, penalty: 0, crash: 0,
+      right: 0, overtake: 0, overtakes: 0, gate: 0,
+      penalty: 0, crash: 0,
       signal: 0, signalsOK: 0, noSignal: 0, noSignalCount: 0,
     };
-    this.eco = 100;
-    this.sectionSum = 0;
-    this.sectionFrames = 0;
-    this.sectionT = SCORE.sectionLen;
-    this.streak = 0;
-    this.bonusCount = 0;
+    this.gates = 0;          // hány kapun mentünk át
+    this.gateAcc = 0;        // megtett távolság a következő kapu felé (m)
+    this.timedOut = false;   // lejárt-e a kapu-idő (játék vége)
+    this.req = reqAvg(0);    // kért átlag km/h · az aktuális kapunál
+    this.gateAvail = SCORE.gateDist / (this.req / 3.6); // időköltségvetés (s)
+    this.gateT = this.gateAvail;
   }
 
-  get mult() {
-    return Math.min(SCORE.multMax, 1 + SCORE.multStep * this.streak);
-  }
+  // Kötelező per-lépés hívás.
+  // lane (0=belső/balkanyar, 1=közép, 2=külső/jobb) — megadja a fogyási ütemet.
+  update(dt, lane) {
+    // pont-flavor: maradj jobbra (külső sáv: +; belső: −) — a HUD pontszáma
+    const pts = SCORE.lanePerSec[lane] * dt;
+    this.score += pts;
+    if (pts > 0) this.parts.right += pts;
 
-  // dt, lane (0..2), speedMps, throttleA (0..1), brakeA (0..1)
-  update(dt, lane, speedMps, throttleA, brakeA) {
-    // -- jobbra tartás --
-    const lanePts = SCORE.lanePerSec[lane] * dt;
-    this.score += lanePts;
-    this.parts.right += lanePts;
-
-    // -- gazdaságosság --
-    const harshness = Math.max(0, (Math.max(throttleA, brakeA) - ECO.harshFloor)) / (1 - ECO.harshFloor);
-    const dev = Math.abs(speedMps - 29) / 40; // zöldzóna: ~97-112 km/h
-    this.eco = Math.max(0, Math.min(ECO.max,
-      this.eco - harshness * ECO.harshDrain * dt - dev * ECO.devDrain * dt + ECO.recover * dt));
-
-    this.sectionSum += this.eco;
-    this.sectionFrames++;
-    this.sectionT -= dt;
-    if (this.sectionT <= 0) {
-      this.sectionT += SCORE.sectionLen;
-      this.settleSection();
+    // KAPU-ÓRA sáv-függő fogyása (a lényeg: jobbra maradva fogy a leglassabban)
+    this.gateT -= laneRateByLane[lane] * dt;
+    if (this.gateT <= 0 && !this.timedOut) {
+      this.gateT = 0;
+      this.timedOut = true;
     }
   }
 
-  settleSection() {
-    const avg = this.sectionFrames > 0 ? this.sectionSum / this.sectionFrames : 0;
-    this.sectionSum = 0;
-    this.sectionFrames = 0;
-
-    if (avg >= SCORE.streakGreen) this.streak += 1;
-    else if (avg < SCORE.streakRed) this.streak = 0;
-
-    const bonus = Math.round(avg * SCORE.ecoBase * this.mult);
-    if (bonus >= 5) {
+  // A játékos megtett `dist` métert a következő kapu felé.
+  advance(dist) {
+    this.gateAcc += dist;
+    if (this.gateAcc >= SCORE.gateDist) {
+      this.gateAcc -= SCORE.gateDist;
+      this.gates++;
+      const bonus = SCORE.gateBonus + Math.min(this.gates, 10) * 2; // növekvő kapu-bónusz
       this.score += bonus;
-      this.parts.bonus += bonus;
-      this.bonusCount++;
-      if (this.onSection) this.onSection(bonus, avg, this.mult, this.streak);
+      this.parts.gate += bonus;
+      // új kapu: a kért átlag emelkedik, ebből friss időköltségvetés
+      this.req = reqAvg(this.gates);
+      this.gateAvail = SCORE.gateDist / (this.req / 3.6);
+      this.gateT = this.gateAvail; // újratölt — sikerült elézni a kaput
     }
   }
+
+  // A kapu felé haladás aránya (0..1) — HUD sáv.
+  gateFrac() {
+    return Math.max(0, Math.min(1, this.gateAcc / SCORE.gateDist));
+  }
+
+  // A kapu-idő aránya (0..1) — az „élet” mérő.  FIGYELEM: az aktualis költségvetéshez.
+  energyFrac() {
+    return Math.max(0, Math.min(1, this.gateT / this.gateAvail));
+  }
+
+  // A jelenlegi kért átlagsebesség (km/h) — HUD kijelzés.
+  reqAvg() { return this.req; }
 
   overtake() {
     this.score += SCORE.overtake;
@@ -73,18 +82,23 @@ export class Scoring {
     this.parts.overtakes++;
   }
 
-  penalty() {
+  // Bevágás / jobbról-előzés.  Az órát csak akkor apasztjuk, ha a JÁTÉKOS az elkövető
+  // (withTime = true): a bevágás látható időbüntetése. Ha valaki más húz ki jobbról
+  // a játékos mellé (withTime = false), az csak pontlevonás + figyelmeztetés.
+  penalty(withTime = true) {
     this.score -= SCORE.rightPassPenalty;
     this.parts.penalty += SCORE.rightPassPenalty;
+    if (withTime) {
+      this.gateT -= PEN.cutIn;
+      if (this.gateT <= 0 && !this.timedOut) { this.gateT = 0; this.timedOut = true; }
+    }
   }
 
   crash() {
     this.score -= SCORE.crash;
     this.parts.crash += SCORE.crash;
-    this.streak = 0;
   }
 
-  // sávváltás: spoós(proper) → bónusz, különben levonás.
   signalChange(proper) {
     if (proper) {
       this.score += SIGNAL.points;
@@ -94,22 +108,21 @@ export class Scoring {
       this.score -= SIGNAL.noSignalPenalty;
       this.parts.noSignal += SIGNAL.noSignalPenalty;
       this.parts.noSignalCount++;
+      // LÁTHATÓ időbüntetés: az index nélküli váltás apasztja a kapu-órát
+      this.gateT -= PEN.noSignal;
+      if (this.gateT <= 0 && !this.timedOut) { this.gateT = 0; this.timedOut = true; }
     }
-  }
-
-  // Az állapot "halad a szakasz" arányát adja a HUD-sávhoz (0..1)
-  sectionFrac() {
-    return 1 - Math.max(0, this.sectionT) / SCORE.sectionLen;
   }
 
   breakdown() {
     return [
       ['Jobbra tartás', Math.round(this.parts.right), ''],
       ['Szabályos előzés', Math.round(this.parts.overtake), this.parts.overtakes + ' alkalom'],
-      ['Gazdaságossági bónusz', Math.round(this.parts.bonus), this.bonusCount + ' szakasz'],
+      ['Kapu bónusz', Math.round(this.parts.gate), this.gates + ' kapu'],
       ['Indexelt sávváltás', Math.round(this.parts.signal), this.parts.signalsOK + ' alkalom'],
       ['Index nélküli sávváltás', -this.parts.noSignal, this.parts.noSignalCount + ' alkalom'],
-      ['Jobbról-előzés büntetés', -this.parts.penalty, ''],
+      ['Belső sáv (indokolatlan) tartás', 0, 'az óra gyorsult'],
+      ['Bevágás/jobbról-előzés büntetés', -this.parts.penalty, 'idő is ment le'],
       ['Baleseti levonás', -this.parts.crash, ''],
     ];
   }

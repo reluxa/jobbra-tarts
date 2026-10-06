@@ -3,11 +3,24 @@
 // ---- Útgeometria ----
 // 1 egység = 1 méter. Az út az +Z tengely mentén halad (a haladási irány +Z).
 export const LANES = 3;
-export const LANE_W = 3.75;            // sávszélesség (m)
+export const LANE_W = 4.25;           // sávszélesség (m) — a rajzolt sávokkal egyező, tágasabb
 export const ROAD_HALF = LANE_W * 1.5; // út fele (3 sáv)
 export const SHOULDER = 2.2;           // leállósáv/oldal (m)
 export const BARRIER_X = ROAD_HALF + SHOULDER + 0.6; // korlát helye
 export const GROUND_Y = 0;
+
+// Végtelennek tetsző autópálya: a statikus világ (út, terep, korlát, díszlet)
+// hosszú, de véges; amikor a játékos a „végéhez” ér, az egész világot (út + 
+// terep + korlát + díszlet + forgalom + játékos) egyszerre visszatekerjük, így
+// a nézet változatlan marad (nincs látható ugrás). A textúra a 12 m-es tile-el
+// ismétlődik, ezért a tekercs a tile többszöröse kell legyen a zökkenőmentességhez.
+export const WORLD = {
+  length: 4000,    // út/terep teljes hossza (m)
+  start: -500,     // a z = start szélétől húzódik
+  wrapAt: 2500,    // ha a játékos ideér, tekercselünk (a farok elé)
+  wrapTo: -500,    // ide ültetjük vissza a játékost
+  tile: 12,        // textúra-periódus (m) — a tekercs ehhez igazodik
+};
 
 // Sávindex -> vezetősáv közepe X-en.
 // lane 0 = bal (képernyő-bal), lane 2 = jobb (képernyő-jobb).
@@ -26,10 +39,16 @@ export const CAR = {
 export const DRIVE = {
   accel: 15.0,      // m/s² teljes gáznál (analóg gázzal finoman adagolható)
   brake: 26.0,      // m/s² teljes fékezésnél
-  drag: 0.0042,     // légellenállás (v² szorzó) — végsebesség ~125 km/h
+  drag: 0.0005,     // légellenállás (v² szorzó) — végsebesség ~153 km/h, így az auto tempó (130) elérhető
   steerLerp: 6.0,   // kormány be/kicsiklázás sebessége
   lateralK: 7.0,    // oldalesúszás csillapítás
   yawRate: 1.35,    // max fejfordulási sebesség (rad/s)
+  // Sávváltás-fókuszú irányítás: nincs kézi gáz/fék/kormányzás, a játék
+  // automatikusan halad (utazósebesség) és a balra/jobbra gomb egy EGY sávváltást
+  // ad, amit maga elvégez (átgurul + kiegyenesedik).
+  cruise: 36.1,      // induló automata utazósebesség (m/s ≈ 130 km/h — tiszta úton erre gyorsul)
+  cruiseMax: 38,     // max utazósebesség magas nehézségnél (m/s ≈ 137 km/h)
+  laneChange: 1.2,   // egy sávváltás időtartama (mp)
 };
 
 // ---- Forgalom ----
@@ -40,11 +59,11 @@ export const TRAFFIC = {
   maxCars: 22,
   waits: [0.2, 0.38, 0.42],   // sáv kiválasztás valószínűsége (bal, közép, jobb)
   speedByLane: [
-    [30, 38],   // bal sáv: gyorsak
-    [25, 32],   // közép
-    [19, 27],   // jobb sáv: lassúak + kamionok
+    [30, 38],   // bal (belső): gyorsak 108–137
+    [26, 32],   // közép: 94–115
+    [25, 31],   // jobb (külső haladási sáv): min. 90–115
   ],
-  truckSpeed: [16, 21], // kamion (jobb sáv)
+  truckSpeed: [25, 31], // kamion (jobb sáv) — min. ~90–111 km/h
   truckChance: 0.55,    // a jobb sávban mekkora eséllyel kamion
   spawnNear: 95,        // legközelebbi spawn-távolság (m)
   spawnSpan: 75,        // spawn-eltolástartomány (m)
@@ -55,27 +74,36 @@ export const TRAFFIC = {
   behindSpeed: [38, 46], // a gyors bal-sávos utolérők sebessége (m/s)
 };
 
-// ---- Pontozás ----
-export const SCORE = {
-  lanePerSec: [0, 1.2, 3.0], // bal, közép, jobb sáv (pont/mp)
-  overtake: 30,        // szabályos előzés
-  rightPassPenalty: 15,// jobbról előztek / jobbról előztél
-  crash: 150,          // baleset levonás
-  sectionLen: 10,      // szakasz hossza (s)
-  ecoBase: 11,         // bónusz = átlagEco% * 11 * szorzó
-  streakGreen: 72,     // átlag felett nő a szorzó
-  streakRed: 45,       // alatta nullázódik
-  multMax: 3.5,
-  multStep: 0.5,
-};
+// ---- Pontozás / kapu-pálya --------------------
+// A játék kapuk közt megy: minden kapunak van egy „időköltségvetése”, amit a
+// kért átlagsebesség ad:  idő = táv / kértÁtlag.  Az óra a következő kapuig
+// fogy; ha lejár, mielőtt odaérsz, vége a futásnak.
+//
+//  * KAPU-ÓRA SÁVONKÉNTI FOGYÁSA  — a „csak jobbra tartva lehet nyerni” mag.
+//    A külső (jobb) sáv a leglassabb ütésű (1.0) => a nyerő sáv; a belső (bal)
+//    sáv 1.8-szor gyorsabban zabálja az idődet, ezért ott senki sem maradhat
+//    hosszan.  lane 0 = belső(bal), 1 = közép, 2 = külső(jobb).
+export const laneRateByLane = [1.8, 1.35, 1.0];
 
-// ---- Gazdaságossági mérő ----
-export const ECO = {
-  harshFloor: 0.18, // e fölött a gáz/fék már "rángatós"
-  harshDrain: 60,   // teljes rángatás esetén ennyit veszít /s
-  devDrain: 7.0,    // zöldzónától távolodva /s
-  recover: 2.4,     // nyugodt vezetés alatt visszatöltés /s
-  max: 100,
+export const SCORE = {
+  // tiszta pont-flavor (a KAPU-ÓRA a nyerő/vésztes tényező, ez csak a kijelzés)
+  lanePerSec: [-6, 0, 2.0],   // belső(0): levonás; közép(1): 0; külső/jobb(2): +pont
+  overtake: 30,        // szabályos balról előzés
+  rightPassPenalty: 15,// jobbról előztél
+  crash: 150,          // baleset levonás
+  gateDist: 1650,      // két kapu közti távolság (m)
+  reqStart: 72,        // kért átlag a legelső kapunál (km/h)  — 20%-kal könnyebb
+  reqStep: 0.64,       // átlag-elvárás emelkedése kapunként (km/h)
+  gateBonus: 40,       // kapun való áthaladás bónuszpontja
+};
+// A kért átlagsebesség az adott számú teljesített kapu után (km/h).
+export const reqAvg = (gates) => SCORE.reqStart + SCORE.reqStep * gates;
+
+// Idő-alapú büntetések (s) — közvetlenül a kapu-órát apasztják, hogy a hatás
+// látható legyen (az időbar pirosra/resell).  A kapu-szimulációból jön.
+export const PEN = {
+  noSignal: 3,   // index nélküli sávváltás
+  cutIn: 5,      // bevágás / jobbról-előzés
 };
 
 // Kanera/irózók — vezetés közben belső (vezetőülési) nézet, a visszapillantó
@@ -88,7 +116,9 @@ export const CAMERA = {
   shakeK: 1.0,
   cockpit: { x: 0.38, y: 1.02, z: 0.12, lookAhead: 20, lookY: 0.55 },
   mirror: { front: 1.05, height: 1.5, fov: 46, lookBack: 70, lookY: 0.25 },
-  mirrorSize: { w: 420, h: 105 },
+  // a céltextúra oldalarányát az üveghez igazítjuk (úveg 0.27x0.08 → 3.375:1),
+  // hogy ne torzuljon; magasabb felbontás = élesebb tükörkép.
+  mirrorSize: { w: 540, h: 160 },
 };
 
 // ---- Index(irányjelző) - KRESZ ----------------

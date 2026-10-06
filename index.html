@@ -128,14 +128,15 @@
       <div id="best">legjobb: 0</div>
     </div>
     <div class="hudbox" id="myBox">
-      <div id="mult">×1.0</div>
+      <div class="lbl">KAPU</div>
+      <div id="mult">KAPU 1</div>
       <div id="streak"></div>
       <div id="lives"></div>
     </div>
     <div class="hudbox" id="ecoBox">
-      <div class="lbl"><span>SIMA VEZETÉS</span><span id="ecoVal">50%</span></div>
+      <div class="lbl"><span>KAPU-IDŐ</span><span id="ecoVal">100%</span></div>
       <div id="ecoBar"><div id="ecoFill"></div></div>
-      <div id="secBar"><div id="secFill"></div></div>
+      <div id="secBar" style="opacity:.55"><div id="secFill"></div></div>
     </div>
     <div class="hudbox" id="speedBox">
       <div id="speed">0</div>
@@ -162,20 +163,21 @@
 
   <div class="overlay" id="startOverlay">
     <h1>JOBBRA TARTÁS</h1>
-    <h2>Háromsávos autópálya-szimulátor — KRESZ-érzés, gazdaságos vezetéssel</h2>
+    <h2>Háromsávos autópálya, kapuk közt — sávváltás-fókusz, KRESZ-érzés</h2>
     <div class="rules">
-      <div class="good">➤ A <b>jobb szélső sáv</b> a haladási sávod: ott haladva folyamatosan pontot kapsz.</div>
-      <div class="good">➤ <b>Előzni csak balról szabad:</b> ki balra – előzés – vissza jobbra, ezért bónusz jár.</div>
-      <div class="bad">➤ Ha <b>jobbról előznek</b>, túl balfelé kószálsz: pontlevonás.</div>
-      <div class="gold">➤ Gáz/fék: minél <b>simábban</b> vezetsz, annál nagyobb a <b>bónusz 10 mp-enként</b> — akár ×3 szorzóval.</div>
-      <div class="good">➤ <b>Indexeld a sávváltást</b> (<kbd style="background:rgba(255,255,255,0.08)">Q</kbd>/<kbd style="background:rgba(255,255,255,0.08)">E</kbd>): szabályos jelzésért <b>+12 pont</b>, jelzés nélkül −8.</div>
-      <div class="bad">➤ Ütközés = baleset: −150 pont, élet és a bónusz-szorzó odavész.</div>
-      <div>➤ Kamion előtt a jobb sávban? <b>Dönts:</b> időben fékezz, vagy előzz szabályosan.</div>
+      <div class="gold">➤ <b>Kapuk közt haladsz:</b> minden kapunak a KÉRT ÁTLAG (km/h) szabja ki az időköltségvetését. A kapu-óra fogy, minden kapu feltölti — ha lejár a következő kapu előtt, <b>vége a futásnak</b>.</div>
+      <div class="good">➤ A <b>jobb szélső sáv</b> a haladási sávod: ott fogy a kapu-időd a LEGLASSABBAN → <b>csak jobbra tartva lehet nyerni</b>.</div>
+      <div class="bad">➤ A <b>belső (bal) sávban</b> az óra 1.8-szor, a középsőben 1.35-ször gyorsabban zabálja az idődet — csak rövid elözésre menj oda, majd VISSZA jobbra.</div>
+      <div class="good">➤ <b>Előzni csak balról szabad:</b>  A  balra + előzés +  D  vissza jobbra.</div>
+      <div class="gold">➤ Automatikus sebesség: a haladás <b>gyorsul</b> a nehézséggel, és a forgalom is <b>sűrűsödik</b> — csak a sávváltásra koncentrálj.</div>
+      <div class="good">➤ <b>Indexeld a sávváltást</b> (<kbd style="background:rgba(255,255,255,0.08)">Q</kbd>/<kbd style="background:rgba(255,255,255,0.08)">E</kbd>): +12 pont, jelzés nélkül −8 pont és <b>−3s kapu-idő</b>.</div>
+      <div class="bad">➤ Ütközés = baleset: −150 pont és életvesztés.  Bevágás/jobbról-előzés −5s kapu-idő.</div>
+      <div>➤ Kamion a jobb sávban? <b>Dönts:</b> előzd meg balról, vagy maradj mögötte.</div>
       <div class="good">➤ Vezetőülési nézet, <b>visszapillantó tükörrel</b>: nézd, ki közelít hátulról a bal sávban!</div>
     </div>
     <button class="btn" id="startBtn">▶ INDÍTÁS</button>
     <div style="margin-top:18px; opacity:0.65; font-size:13px;">
-      <kbd>W</kbd> gáz &nbsp; <kbd>S</kbd> fék &nbsp; <kbd>A</kbd>/<kbd>D</kbd> vagy <kbd>←→</kbd> kormányzás &nbsp; <kbd>Q</kbd>/<kbd>E</kbd> index &nbsp; <kbd>P</kbd> szünet &nbsp; <kbd>M</kbd> hang
+      <kbd>A</kbd>/<kbd>D</kbd> vagy <kbd>←→</kbd> „sávváltás” &nbsp; <kbd>Q</kbd>/<kbd>E</kbd> index &nbsp; <kbd>P</kbd> szünet &nbsp; <kbd>M</kbd> hang
     </div>
   </div>
 
@@ -186,7 +188,7 @@
 
   <div class="overlay hidden" id="overOverlay">
     <h1 id="overTitle">BALESET VÉGE</h1>
-    <h2>Kifogytál az életekből</h2>
+    <h2 id="overSub">Kifogytál az életekből</h2>
     <table class="break" id="breakTable"></table>
     <button class="btn" id="restartBtn">↻ ÚJRA</button>
     <div id="overBest"></div>

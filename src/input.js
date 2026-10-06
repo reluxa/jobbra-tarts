@@ -1,62 +1,41 @@
 // Bemenetkezelés: billentyűzet + érintőgombok.
-// Közös absztrakció, hogy a játéklogika és a motor-fizika ugyanazt használja.
+// Sávváltás-fókuszú irányítás: a bal/jobb gomb EGY automatikus sávváltást indít
+// (a tényleges váltást a Player végzi), nem folyamatos kormányzás.
 
 export class Input {
   constructor() {
-    this.keys = new Set();
-    this.touch = { gas: false, brake: false, left: false, right: false };
     this.enabled = true;
     this.onAnyKey = null; // autoplay-hang felszabadításához
+    this.onLane = null;   // (dir: -1 balra, +1 jobbra) => void
+    this.onSignal = null; // (dir) => void
 
     window.addEventListener('keydown', (e) => this.keydown(e));
-    window.addEventListener('keyup', (e) => this.keyup(e));
-    window.addEventListener('blur', () => { this.keys.clear(); });
 
-    // Érintőgombok
-    const bind = (id, key) => {
+    // Érintőgombok: balra/jobbra = egy sávváltás, indexjelző = egy jelzés.
+    const bindOnce = (id, fn) => {
       const el = document.getElementById(id);
       if (!el) return;
-      const set = (v) => (ev) => { ev.preventDefault(); this.touch[key] = v; };
-      el.addEventListener('pointerdown', set(true));
-      el.addEventListener('pointerup', set(false));
-      el.addEventListener('pointercancel', set(false));
-      el.addEventListener('pointerleave', set(false));
+      el.addEventListener('pointerdown', (ev) => { ev.preventDefault(); fn(); });
     };
-    bind('tGas', 'gas');
-    bind('tBrk', 'brake');
-    bind('tL', 'left');
-    bind('tR', 'right');
-    // index (irányjelző) gombok: nyomásra egyszeri jelzés
-    const bindSig = (id, dir) => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      el.addEventListener('pointerdown', (ev) => {
-        ev.preventDefault();
-        if (this.onSignal) this.onSignal(dir);
-      });
-    };
-    bindSig('tSigL', -1);
-    bindSig('tSigR', 1);
+    bindOnce('tL', () => this.onLane && this.onLane(-1));
+    bindOnce('tR', () => this.onLane && this.onLane(1));
+    bindOnce('tSigL', () => this.onSignal && this.onSignal(-1));
+    bindOnce('tSigR', () => this.onSignal && this.onSignal(1));
   }
 
   keydown(e) {
     const k = e.key.toLowerCase();
     if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k)) e.preventDefault();
     if (this.onAnyKey) this.onAnyKey();
-    if ((k === 'q' || k === 'e') && this.onSignal) this.onSignal(k === 'q' ? -1 : 1);
-    this.keys.add(k);
-  }
-  keyup(e) {
-    this.keys.delete(e.key.toLowerCase());
-  }
 
-  get gas() { return this.enabled && (this.keys.has('w') || this.keys.has('arrowup') || this.touch.gas); }
-  get brake() { return this.enabled && (this.keys.has('s') || this.keys.has('arrowdown') || this.touch.brake); }
-  // -1 = balra, +1 = jobbra
-  get steer() {
-    let v = 0;
-    if (this.keys.has('a') || this.keys.has('arrowleft') || this.touch.left) v -= 1;
-    if (this.keys.has('d') || this.keys.has('arrowright') || this.touch.right) v += 1;
-    return v;
+    // az ismételt gombnyomás (lenyomva tartás) ne spamelje a sávváltást
+    if (k === 'a' || k === 'arrowleft' || k === 'd' || k === 'arrowright' ||
+        k === 'q' || k === 'e') {
+      if (e.repeat) return;
+      if (k === 'a' || k === 'arrowleft') this.onLane && this.onLane(-1);
+      else if (k === 'd' || k === 'arrowright') this.onLane && this.onLane(1);
+      else if (k === 'q') this.onSignal && this.onSignal(-1);
+      else if (k === 'e') this.onSignal && this.onSignal(1);
+    }
   }
 }

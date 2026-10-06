@@ -39,10 +39,17 @@ export class Player {
     setGroupLayer(this.extGroup, 1);
     setGroupLayer(this.intGroup, 2);
 
-    this.steer = 0;        // akt. befordítás (-1..1)
+    this.steer = 0;        // akt. befordítás (-1..1), vizuális
+    this.laneChange = null; // {from,to,t} — futó automatikus sávváltás
     this.speed = 0;        // hosszirányú sebesség (m/s, előre pozitív)
     this.fwdSpeed = 0;     // alias a HUD/pass-logika felé
     this.invincible = 0;
+    this.cruise = DRIVE.cruise; // aktuális utazósebesség (a nehézséggel nő)
+    // radar-tempomat: ha elöl a sávban lassabb jármű van, erre (a küszöb szerint)
+    // korlátozzuk a célsebességet, és utána is lassítsunk — vissza a betett rájazón.
+    this.radarTarget = 600;  // elfoglult nélküli érték (m/s — gyakrol lím nélküli)
+    this.radarOn = false;
+    this.radarGap = Infinity; // legutóbbi mért követési távolság
 
     // indexelés (KRESZ-értéke a pontozásnál)
     this.signal = 0;       // -1 balra / 0 ki / +1 jobbra
@@ -138,106 +145,263 @@ export class Player {
     ];
     this.sigLights.forEach((m) => this.extGroup.add(m));
 
-    // műszerfali nyilak (belső)
-    const arrowMat = () => new THREE.MeshStandardMaterial({
-      color: 0xffb300, emissive: 0xffa000, emissiveIntensity: 0.05,
-    });
-    this.sigDash = [];
-    for (const [x, rot] of [[0.22, 0], [0.54, Math.PI]]) {
-      const a = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.1, 3), arrowMat());
-      a.position.set(x, 0.87, 0.5);
-      a.rotation.z = rot;
-      this.intGroup.add(a);
-      this.sigDash.push(a);
-    }
+    // műszerfali index-nyilak (valósághű, a műszerfalon világító LED-nyilak)
+    const arrowMatF = () => new THREE.MeshStandardMaterial({
+      color: 0x6b4a12, emissive: 0xff9a00, emissiveIntensity: 0.02, roughness: 0.4, metalness: 0.1 });
+    // LED-nyíl: a vezető felé néz; a nyíl a megfelelő irányba mutat.
+    // +X = a képernyő balja (vezetői nézet, +Z előre).
+    const makeDashArrow = (left, x, y, z) => {
+      const shape = new THREE.Shape();
+      const w = 0.05, h = 0.036;
+      shape.moveTo(-w, h); shape.lineTo(w, 0); shape.lineTo(-w, -h); shape.closePath();
+      const m = new THREE.Mesh(new THREE.ShapeGeometry(shape), arrowMatF());
+      if (left) m.rotation.x = Math.PI; else m.rotation.y = Math.PI;  // bal: hegy +X balra; jobb: hegy −X jobbra
+      m.position.set(x, y, z);
+      this.intGroup.add(m);
+      return m;
+    };
+    this.sigDash = [
+      makeDashArrow(true, 0.6, 0.8, 0.88),   // ◀ bal indicator a bal oldalon
+      makeDashArrow(false, 0.34, 0.8, 0.88), // ▶ jobb indicator a jobb oldalon
+    ];
   }
 
   buildInterior() {
-    const intMat = new THREE.MeshStandardMaterial({ color: 0x15181d, roughness: 0.55, metalness: 0.25 });
-    const shineMat = new THREE.MeshStandardMaterial({ color: 0x0e1014, roughness: 0.25, metalness: 0.85 });
+    // --- anyagok (világosabbak, hogy a kabin ne legyen fekete) ---
+    const plastic = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.55, metalness: 0.2 });
+    const darkPlastic = new THREE.MeshStandardMaterial({ color: 0x20242a, roughness: 0.7, metalness: 0.15 });
+    const leather = new THREE.MeshStandardMaterial({ color: 0x363b42, roughness: 0.85, metalness: 0.05 });
+    const cloth = new THREE.MeshStandardMaterial({ color: 0x4a4f57, roughness: 1.0, metalness: 0 });
+    const trim = new THREE.MeshStandardMaterial({ color: 0x5a616c, roughness: 0.3, metalness: 0.75 });
+    const gloss = new THREE.MeshStandardMaterial({ color: 0x2a2f37, roughness: 0.12, metalness: 0.95 });
+    const buttonM = new THREE.MeshStandardMaterial({ color: 0x6b747f, roughness: 0.4, metalness: 0.55 });
+    const screenM = new THREE.MeshStandardMaterial({ color: 0x0a1620, emissive: 0x22a7e0, emissiveIntensity: 1.5, roughness: 0.2 });
 
-    // műszerfal
-    const dash = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.16, 0.5), intMat);
-    dash.position.set(0, 0.82, 0.52);
-    dash.rotation.x = 0.12;
-    this.intGroup.add(dash);
+    // kabin megvilágítása (kicsi pontfény a tetőnél, hogy a belső ne legyen sötét)
+    const cabin = new THREE.PointLight(0xd7e4ff, 0.7, 5);
+    cabin.position.set(0, 1.02, 0.6);
+    this.intGroup.add(cabin);
 
-    // műszerklaszter (gyenge kékes fény)
-    const cluster = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.1, 0.02), new THREE.MeshStandardMaterial({
-      color: 0x0b1220, emissive: 0x2b6fd6, emissiveIntensity: 1.6,
-    }));
-    cluster.position.set(0.44, 0.83, 0.78);
-    cluster.rotation.x = -0.2;
-    this.intGroup.add(cluster);
+    // --- MŰSZERFAL: alsó váz + felső „look-over” perem ---
+    const dashBody = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.22, 0.5), plastic);
+    dashBody.position.set(0, 0.56, 1.0);
+    dashBody.rotation.x = 0.06;
+    this.intGroup.add(dashBody);
+    const dashCowl = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.07, 0.5), leather);
+    dashCowl.position.set(0, 0.7, 1.06);
+    dashCowl.rotation.x = -0.28;
+    this.intGroup.add(dashCowl);
+    const dashLip = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.05, 0.08), darkPlastic);
+    dashLip.position.set(0, 0.66, 1.12);
+    this.intGroup.add(dashLip);
 
-    // A-oszlopok (bal+jobblejtő)
-    const aPillar = (x, ry) => {
-      const p = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.7, 0.07), intMat);
-      p.position.set(x, 0.92, 0.85);
-      p.rotation.z = ry;
-      p.rotation.x = -0.25;
-      this.intGroup.add(p);
+    // --- MŰSZERKLASZTER: binnacle + két óra (kormány mögött) ---
+    const bin = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.14, 0.34), plastic);
+    bin.position.set(0.5, 0.7, 1.0);
+    bin.rotation.x = -0.06;
+    this.intGroup.add(bin);
+    const dialMat = new THREE.MeshStandardMaterial({ color: 0x0b0e14, roughness: 0.35, metalness: 0.2 });
+    const needleMat = new THREE.MeshStandardMaterial({
+      color: 0xe04343, emissive: 0x991515, emissiveIntensity: 0.7, roughness: 0.4 });
+    const tick = new THREE.MeshBasicMaterial({ color: 0xe3e8ee });
+    const R = 0.055; // kicsi óraméret: ne takarja az utat
+    const gauge = (x) => {
+      const g = new THREE.Group();
+      g.position.set(x, 0.72, 0.84);
+      g.rotation.y = Math.PI;   // front (−Z) a vezető felé
+      g.rotation.x = -0.06;
+      const plate = new THREE.Mesh(new THREE.CircleGeometry(R, 28), dialMat);
+      plate.position.z = -0.012;
+      g.add(plate);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(R, 0.005, 8, 28), trim);
+      ring.position.z = -0.017;
+      g.add(ring);
+      for (let i = 0; i < 7; i++) {
+        const t = new THREE.Mesh(new THREE.BoxGeometry(0.0025, 0.022, 0.003), tick);
+        const a = (i / 6) * 1.4 - 0.7;
+        t.position.set(Math.sin(a) * R * 0.72, Math.cos(a) * R * 0.72, -0.017);
+        t.rotation.z = a;
+        g.add(t);
+      }
+      const need = new THREE.Mesh(new THREE.BoxGeometry(0.005, 0.036, 0.004), needleMat);
+      need.position.set(R * 0.42, R * 0.45, -0.017);
+      need.rotation.z = -0.5;
+      g.add(need);
+      this.intGroup.add(g);
     };
-    aPillar(-0.55, -0.22); // bal
-    aPillar(0.55, 0.22);   // jobb — a kormányhoz közel
+    gauge(0.42);
+    gauge(0.53);
 
-    // kormány (oszlop > kerék tengely > kerék)
+    // --- SZELLŐZŐROSTÉLYOK a műszerfalon (vízszintes lécekkel) ---
+    const vent = (x, ry) => {
+      const g = new THREE.Group();
+      g.position.set(x, 0.74, 1.12);
+      g.rotation.y = ry || 0;
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.075, 0.05), darkPlastic));
+      for (let i = -1; i <= 1; i++) {
+        const sl = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.014, 0.03), trim);
+        sl.position.set(0, i * 0.018, 0.03);
+        g.add(sl);
+      }
+      this.intGroup.add(g);
+    };
+    vent(-0.85, -0.1);
+    vent(-0.45, -0.02);
+    vent(0.15, 0.1);
+    // középső infotainment-kijelző a műszerfal közepén
+    const centerScreen = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.09, 0.03), screenM);
+    centerScreen.position.set(-0.14, 0.76, 1.05);
+    centerScreen.rotation.x = -0.3;
+    this.intGroup.add(centerScreen);
+
+    // --- KÖZÉPKONZOL + RÁDIÓ + infotainment képernyő (jobb oldalt) ---
+    const console = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.5), leather);
+    console.position.set(-0.42, 0.56, 1.0);
+    console.rotation.x = 0.05;
+    this.intGroup.add(console);
+
+    const radio = new THREE.Group();
+    radio.add(new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.24, 0.1), gloss));
+    const rs = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.09, 0.02), screenM);
+    rs.position.set(0, 0.055, -0.052);
+    radio.add(rs);
+    for (let i = -2; i <= 2; i++) {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.05, 0.02), buttonM);
+      b.position.set(i * 0.058, -0.06, -0.052);
+      radio.add(b);
+    }
+    for (const sx of [-0.13, 0.13]) {
+      const k = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.03, 14), buttonM);
+      k.rotation.x = Math.PI / 2;
+      k.position.set(sx, -0.115, -0.053);
+      radio.add(k);
+    }
+    radio.position.set(-0.3, 0.68, 1.06);
+    radio.rotation.y = Math.PI;   // front a vezető felé
+    this.intGroup.add(radio);
+
+    const infoScreen = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.15, 0.03), screenM);
+    infoScreen.position.set(-0.3, 0.8, 1.0);
+    infoScreen.rotation.x = -0.5;
+    infoScreen.rotation.y = 0.4;
+    this.intGroup.add(infoScreen);
+
+    // --- AJTÓKÁRPITOK (bal vezető + jobb utas) ---
+    const door = (x) => {
+      const card = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.52, 0.8), plastic);
+      card.position.set(x, 0.74, 0.7);
+      card.rotation.y = x < 0 ? 0.12 : -0.12;
+      this.intGroup.add(card);
+      const armrest = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.5), leather);
+      armrest.position.set(x, 0.66, 0.68);
+      this.intGroup.add(armrest);
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.03, 0.26), trim);
+      handle.position.set(x, 0.86, 0.68);
+      this.intGroup.add(handle);
+      const cup = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.16), gloss);
+      cup.position.set(x, 0.82, 0.58);
+      this.intGroup.add(cup);
+      const sill = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.05, 0.9), darkPlastic);
+      sill.position.set(x - 0.04, 0.58, 0.7);
+      this.intGroup.add(sill);
+    };
+    door(0.82);
+    door(-0.82);
+
+    // --- KORMÁNY (oszlopburkolat + vastag perem, 3 küllő, középbetét) ---
     this.steerCol = new THREE.Group();
-    this.steerCol.position.set(0.38, 0.72, 0.44);
-    this.steerCol.rotation.x = 0.5; // dőlés: a kerék teteje a szélVédő felé
+    this.steerCol.position.set(0.38, 0.7, 0.46);
+    this.steerCol.rotation.x = 0.5;
     this.intGroup.add(this.steerCol);
+    const shroud = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.13, 0.3), plastic);
+    shroud.position.set(0, 0.02, 0.14);
+    this.steerCol.add(shroud);
+
+    // Indexkapcsoló (indexemelő): a kormányoszlop bal oldalán, a vezető felé
+    // álló kis kar — irányjelzéskor állíthatóan megmozdul.
+    this.sigStalk = new THREE.Group();
+    this.sigStalk.position.set(-0.07, -0.03, 0.2);
+    const lever = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.013, 0.18, 10), trim);
+    lever.rotation.x = Math.PI / 2;          // +Z felé nyúlik, a vezető felé
+    lever.position.z = 0.09;
+    this.sigStalk.add(lever);
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.016, 10, 8), buttonM);
+    knob.position.z = 0.17;
+    this.sigStalk.add(knob);
+    this.steerCol.add(this.sigStalk);
+
     this.steerWheel = new THREE.Group();
+    this.steerWheel.position.set(0, 0, 0.02);
     this.steerCol.add(this.steerWheel);
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.022, 10, 22), shineMat);
-    // a torus alapból +Z felé néz: a kormány két keze a vezető felé áll
-    const hub = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8), darkMat(0x23272e));
-    const spokes = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.28, 0.03), shineMat);
-    this.steerWheel.add(rim, hub, spokes);
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0x20242b, roughness: 0.6, metalness: 0.35 });
+    this.steerWheel.add(new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.026, 12, 32), rimMat));
+    for (let i = 0; i < 3; i++) {
+      const holder = new THREE.Group();
+      holder.rotation.z = i * (Math.PI * 2 / 3);
+      const sp = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.09, 0.03), trim);
+      sp.position.y = 0.075;
+      holder.add(sp);
+      this.steerWheel.add(holder);
+    }
+    const pad = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.03), gloss);
+    this.steerWheel.add(pad);
     this.wheelSpinV = 0;
 
-    // belső visszapillantó tükör: a vezető feje fölé, a vezető felé dőlve.
-    // A keret tömör doboz, ezért a tükörüveget a keret ELÉRE (a kamera felé)
-    // tesszük, hogy ne takarja. (Méret a valós arányokhoz: a széleink a kamera
-    // szemmagassága felett, a tetőkárpit vonalában lóg, így nem takarja az utat.)
-    const mirrorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.11, 0.028), intMat);
-    mirrorFrame.position.set(0.10, 1.16, 0.95);
+    // --- TETŐKÁRPIT + napfényfüggönyök + kupola-lámpa ---
+    const headliner = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.05, 0.9), cloth);
+    headliner.position.set(0, 1.22, 0.55);
+    this.intGroup.add(headliner);
+    const dome = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.04, 0.2), new THREE.MeshStandardMaterial({
+      color: 0x2a2f37, emissive: 0x27333d, emissiveIntensity: 0.6, roughness: 0.5 }));
+    dome.position.set(0, 1.19, 0.72);
+    this.intGroup.add(dome);
+    for (const x of [-0.5, 0.5]) {
+      const v = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.05, 0.6), cloth);
+      v.position.set(x, 1.14, 0.45);
+      v.rotation.x = -0.3;
+      this.intGroup.add(v);
+    }
+
+    // --- BELSŐ VISSZAPILLANTÓ TÜKÖR (keret + üveg) a vezető feje fölött ---
+    const mirrorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.11, 0.028), gloss);
+    mirrorFrame.position.set(0.10, 1.14, 0.98);
     mirrorFrame.rotation.x = -0.32;
     this.intGroup.add(mirrorFrame);
-    // a vezető felé kell néznie a felületnek (a plane alapból +Z-t néz,
-    // a kamera -Z felől nézi) → a Y-ge 180°-kal elforgatjuk + DoubleSide
-    // biztonsággal (a tükörben a kép tükörfordítottan látszik, ami valósághű).
     this.mirrorGlass = new THREE.Mesh(
       new THREE.PlaneGeometry(0.27, 0.08),
       new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })
     );
-    this.mirrorGlass.position.set(0.10, 1.16, 0.91); // a keret élénél a vezető felé
+    this.mirrorGlass.position.set(0.10, 1.14, 0.94);
     this.mirrorGlass.rotation.y = Math.PI;
     this.mirrorGlass.rotation.x = -0.32;
     this.intGroup.add(this.mirrorGlass);
 
-    // oldaltükrök (csak dísz)
-    for (const x of [-0.78, 0.78]) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.1), shineMat);
-      m.position.set(x, 0.94, 0.1);
-      m.rotation.y = x < 0 ? -0.6 : 0.6;
-      this.intGroup.add(m);
-    }
-
-    // tetőkárpit sáv (a látómező tetején)
-    const headliner = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.06, 0.8), intMat);
-    headliner.position.set(0, 1.22, 0.4);
-    this.intGroup.add(headliner);
+    // --- A-OSZLOPOK (bal + jobb) ---
+    const aPillar = (x, ry) => {
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.72, 0.08), cloth);
+      p.position.set(x, 0.92, 0.9);
+      p.rotation.z = ry;
+      p.rotation.x = -0.25;
+      this.intGroup.add(p);
+    };
+    aPillar(-0.55, -0.22);
+    aPillar(0.55, 0.22);
   }
 
   setMirrorTexture(tex) {
     if (!this.mirrorGlass) return;
-    // Fontos optikai részlet: a tükör-kamera a vezető szeme tükörtisztítású,
-    // hátra néző képét adja — de a valódi síktükör ezt a képet HORIZONTÁLISAN
-    // FELFORDÍTVA mutatja (ezért a tükörben a feliratok visszafelé olvashatók).
-    // Így a kép felületre vetésekor a textúrát UV-á alakítással megfordítjuk.
-    tex.center.set(0.5, 0.5);
-    tex.offset.set(1, 0);
+    // Optikai logika: a tükör-kamera a szélvédő vonalából HÁTRANÉZ.
+    // A hátrafelé mutató render-kamera képe a bal-jobb oldalt MEGFORDÍTJA az
+    // élethű tükörképhez képest (amikor hátranézel, a bal oldal jobbra kerül a
+    // nyers képen). Ezért EGYSZERI horizontális flip kell az UV-ban (repeat.x=-1),
+    // hogy a tükör helyesen (bal balra, jobb jobbra) mutasson. A tükörüveg
+    // meshje a vezető felé áll (rotation.y=PI = előlap nézet), így nem ad
+    // saját flipet, a korrekt flipet a UV-fordítás biztosítja.
+    tex.center.set(0, 0);
+    tex.offset.x = 1;
     tex.repeat.set(-1, 1);
+    tex.wrapS = 1001; // RepeatWrapping
+    tex.needsUpdate = true;
     this.mirrorGlass.material.map = tex;
     this.mirrorGlass.material.needsUpdate = true;
   }
@@ -290,10 +454,29 @@ export class Player {
     this.chassis.angularVelocity.setZero();
   }
 
+  // abszolút yaw beállítása (radio nélküli, sima) — a sávváltásnál használjuk,
+  // hogy kiegyenesítéskor mindig tiszta 0°-ra álljunk (nem adogat a jelenlegihez).
+  setYawAbs(rad) {
+    this.qCannon.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), rad);
+    this.chassis.quaternion.copy(this.qCannon);
+    this.chassis.angularVelocity.setZero();
+  }
+
   hardAlignYaw() {
     this.rotateY(0);
     this.chassis.velocity.set(0, 0, 0);
     this.speed = 0;
+  }
+
+  // ---------- sávváltás (a játék végzi) ----------
+  // Egy gombnyomás = EGY sávváltás a kért irányba, amit a játék automatikusan
+  // elvégez (átgurul az új sáv közepére és kiegyenesedik). Lekérő irány: -1 balra, +1 jobbra.
+  requestLaneChange(dir) {
+    if (this.laneChange) return;              // már váltunk éppen
+    const from = this.laneIndex();
+    const to = clamp(Math.round(from + dir), 0, 2);
+    if (to === from) return;                  // a szélen nem tudunk odébb menni
+    this.laneChange = { from, to, t: 0 };
   }
 
   // ---------- index (KRESZ-irányjelző) ----------
@@ -305,47 +488,99 @@ export class Player {
   signalAct() { return this.signal !== 0; }
 
   updateSignalViz(dt) {
-    if (!this.signalAct()) { this.signalT = 0; return; }
+    const sig = this.signal;
+    // kikapcsolt állapotban minden jelző leoltva, az indexemelő visszaáll
+    if (!sig) {
+      this.signalT = 0;
+      for (const m of this.sigLights) m.material.emissiveIntensity = 0.05;
+      if (this.sigDash) { this.sigDash[0].material.emissiveIntensity = 0.02; this.sigDash[1].material.emissiveIntensity = 0.02; }
+      if (this.sigStalk) this.sigStalk.rotation.x = 0;
+      return;
+    }
     this.signalT += dt;
     this.blinkPhase = (this.blinkPhase + dt * SIGNAL.blinkHz) % 1;
-    if (this.signalT >= SIGNAL.autoOff) { this.signal = 0; }
+    if (this.signalT >= SIGNAL.autoOff) this.signal = 0;
 
     const on = this.blinkPhase < 0.5 ? 2.2 : 0.05;
-    // külső lámpák: csak az aktív oldal (bal = -X, jobb = +X)
     const leftW = this.signal === -1;
+    // külső lámpák: csak az aktív oldal (bal = -X, jobb = +X)
     for (const [i, m] of this.sigLights.entries()) {
       const isLeftSide = i < 2;
       m.material.emissiveIntensity = (isLeftSide === leftW) ? on : 0.05;
     }
-    // műszerfali nyilak (0. index = bal nyíl)
-    const dashOn = (m, active) => { m.material.emissiveIntensity = active ? on : 0.05; };
+    // műszerfali index-nyilak (0. index = bal nyíl)
     if (this.sigDash) {
-      dashOn(this.sigDash[0], this.signal === -1);
-      dashOn(this.sigDash[1], this.signal === 1);
+      this.sigDash[0].material.emissiveIntensity = (this.signal === -1) ? on : 0.02;
+      this.sigDash[1].material.emissiveIntensity = (this.signal === 1) ? on : 0.02;
+    }
+    // indexemelő: balra = le, jobbra = fel (a karon)
+    if (this.sigStalk) {
+      const target = this.signal === -1 ? -0.45 : 0.45;
+      const k = 1 - Math.exp(-dt * 16);
+      this.sigStalk.rotation.x += (target - this.sigStalk.rotation.x) * k;
     }
   }
 
-  // input: {throttle 0..1, brake 0..1, steer -1..1}
-  step(input, dt) {
-    let v = this.speed;
-    const maxV = CAR.maxSpeed;
-    const engineCap = this.invincible > 0 ? 0 : 1;
+  // Sávváltás-fókuszú léptetés: a gáz/fék/kormányzás helyett a játék
+  // automatikusan halad (utazósebességre törekszik), és a bal/jobb gomb egy
+  // automatikus sávváltást indít. A játékosnak csak a sávváltás pillanatával
+  // kell törődnie (és az irányjelzéssel).
+  // Radar-tempomat bemenete: a következő kapu előtti jármű (elöl, azonos sávban).
+  // gap = távolság (m), speed = annak a járműnek a sebessége (m/s).  Hiszterézis,
+  // hogy ne oszcilláljon: csak közeli jármű kapcsol be, és csak hosszú távolságnál
+  // old ki, ha már továbbhagytunk.
+  setRadar(gap, speed) {
+    const ENGAGE = 22, RELEASE = 42;
+    this.radarGap = gap;
+    if (gap === Infinity || gap > RELEASE) {
+      this.radarOn = false;
+      this.radarTarget = 600;
+    } else if (gap < ENGAGE || this.radarOn) {
+      this.radarOn = true;
+      this.radarTarget = Math.max(1, speed);   // kövesd a lassabb jármű tempóját
+    }
+  }
 
-    const acc = input.throttle * DRIVE.accel * (1 - v / maxV) * engineCap;
-    const dec = input.brake * DRIVE.brake;
-    v += (acc - dec) * dt;
+  step(dt) {
+    // --- automata sebesség: utazósebességre törekszünk, baleset után lassabban,
+    //     és nem megyünk bele a radar-tempomat által mért lassabb járműbe sem ---
+    const maxV = CAR.maxSpeed;
+    const cruiseTarget = this.invincible > 0 ? this.cruise * 0.55 : this.cruise;
+    const target = Math.min(cruiseTarget, this.radarTarget);
+    let v = this.speed;
+    const acc = DRIVE.accel * (1 - v / maxV);
+    if (v < target) v = Math.min(target, v + acc * dt);
+    else v = Math.max(target, v - DRIVE.brake * dt);
     v -= v * v * DRIVE.drag * dt;
-    if (v < 0) v = 0;
-    if (v > maxV) v = maxV;
+    v = clamp(v, 0, maxV);
     this.speed = v;
 
-    const k = 1 - Math.exp(-dt * DRIVE.steerLerp);
-    this.steer += (input.steer - this.steer) * k;
-    const sr = Math.min(1, v / 25);
-    this.rotateY(-this.steer * DRIVE.yawRate * (0.35 + 0.65 * sr) * dt);
+    // --- automatikus sávváltás ---
+    if (this.laneChange) {
+      const lc = this.laneChange;
+      lc.t += dt;
+      const k = Math.min(1, lc.t / DRIVE.laneChange);
+      const e = k * k * (3 - 2 * k);               // smoothstep: lágy ki/be
+      const fromX = laneCenterX(lc.from);
+      const toX = laneCenterX(lc.to);
+      this.chassis.position.x = fromX + (toX - fromX) * e;
+      // enyhe kormánybehúzás a váltás irányába, majd kiegyenesedés (érzet/vizuál)
+      const s = lc.from < lc.to ? -1 : 1;          // jobbra → -1, balra → +1
+      this.steer = s;
+      this.setYawAbs(s * 0.3 * Math.sin(Math.PI * k));
+      if (k >= 1) {
+        this.chassis.position.x = toX;
+        this.setYawAbs(0);
+        this.steer = 0;
+        this.laneChange = null;
+      }
+    } else {
+      this.steer = 0;
+    }
 
-    const fwd = this.forwardWorld();
-    this.speedVec.set(fwd.x * v, 0, fwd.z * v);
+    // haladás előre (+Z). Sávváltáskor a laterális mozgást az x-cél adja,
+    // ezért itt tiszta előre-sebességet viszünk a testbe.
+    this.speedVec.set(0, 0, v);
     this.chassis.velocity.copy(this.speedVec);
     this.chassis.angularVelocity.setZero();
     this.chassis.force.setZero();
@@ -361,8 +596,7 @@ export class Player {
       this.speed *= 0.85;
     }
 
-    // kormánykerék-forgatás (látvány)
-    this.wheelSpinV = clamp(this.wheelSpinV + input.steer * dt * 7, -8, 8);
+    // kormánykerék-forgatás (látvány) a syncVisual-ban, target-lerp-pel
 
     this.fwdSpeed = v;
     this.syncVisual(dt);
@@ -381,7 +615,12 @@ export class Player {
       w.tyre.rotation.x = w.spin;
       if (w.steer) w.holder.rotation.y = -this.steer * 0.55;
     }
-    if (this.steerWheel) this.steerWheel.rotation.z -= this.wheelSpinV * dt;
+    // a kormány a befordítási irányba fordul a sávváltáskor, majd visszaáll
+    if (this.steerWheel) {
+      const target = this.steer * 0.85;
+      const k = 1 - Math.exp(-dt * 10);
+      this.steerWheel.rotation.z += (target - this.steerWheel.rotation.z) * k;
+    }
   }
 
   // kamera: 'cockpit' (játék) vagy 'chase' (címlap/játék vége)
@@ -438,6 +677,7 @@ export class Player {
     this.chassis.velocity.setZero();
     this.chassis.angularVelocity.setZero();
     this.steer = 0;
+    this.laneChange = null;
     this.speed = 0;
     this.fwdSpeed = 0;
     this.signal = 0;
@@ -456,6 +696,12 @@ export class Player {
       spin: +w.spin.toFixed(2),
       idx: i,
     }));
+  }
+
+  // Világ-visszatekeréshez: a játékos testét delta-val toljuk −Z felé (a nézet
+  // azért marad azonos, mert a világ+forgalom ugyanezzel a delta-val megy).
+  wrapZ(delta) {
+    this.chassis.position.z -= delta;
   }
 
   free() { this.world.removeBody(this.chassis); }

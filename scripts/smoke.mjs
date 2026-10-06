@@ -102,43 +102,67 @@ try {
   assert(d1.pos[2] > 2, `az autó halad +Z felé (z=${d1.pos[2]})`);
   await shot('02-driving');
 
-  // --- 2) kormányzás iránya (yaw-alapú, mivel a korlát befolyásolhatja x-et) ---
-  const y0 = d1.yaw;
-  await page.keyboard.down('d');
-  await sleep(1500);
-  await page.keyboard.up('d');
-  const d2 = await page.evaluate(() => window.__dbg());
-  console.log('  kormány jobbra:', JSON.stringify(d2));
-  assert(d2.yaw < y0 - 5, `jobbra kormányzás = yaw csökken (${y0} → ${d2.yaw})`);
+  // --- 2) sávváltás-fókusz: egy gombnyomás = egy automatikus sávváltás ---
+  // először kitakarítjuk a közelből a forgalmat, hogy a váltóteszt ne akadjon össze velük
+  await page.evaluate(() => {
+    const g = window.__game; const pz = g.player.pos.z;
+    for (let i = g.traffic.cars.length - 1; i >= 0; i--) {
+      const c = g.traffic.cars[i];
+      if (Math.abs(c.body.position.z - pz) < 80) {
+        g.worldPhys.removeBody(c.body); g.scene.remove(c.meshes);
+        g.traffic.byId.delete(c.body.id); g.traffic.cars.splice(i, 1);
+      }
+    }
+  });
+  const waitLane = async (want, ms = 25000) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) {
+      const st = await page.evaluate(() => ({
+        lane: window.__game.player.laneIndex(),
+        done: window.__game.player.laneChange === null,
+      }));
+      if (st.lane === want && st.done) return true; // csak a VÁLTÁS VÉGÉN várjuk meg
+      await sleep(80);
+    }
+    return false;
+  };
 
-  await page.keyboard.down('a');
-  await sleep(2000);
-  await page.keyboard.up('a');
-  const d2b = await page.evaluate(() => window.__dbg());
-  assert(d2b.yaw > d2.yaw + 5, `balra kormányzás = yaw nő (${d2.yaw} → ${d2b.yaw})`);
+  const d1b = await page.evaluate(() => window.__dbg());
+  assert(d1b.lane === 2, `a játékos a jobb szélső sávban indul (lane=${d1b.lane})`);
 
-  // --- 2b) indexelés: Q/E + sávváltás = +12 pont ---
-  // a játékos a 2. sáv határától 0.9 m-re indul (~1 m múlva vált sávot)
-  await page.evaluate(() => window.__jumpLane(2, 0.9));
-  await page.keyboard.press('q');  // balra index
+  // balra váltás: A-gomb → sáv 1
+  await page.keyboard.press('a');
+  const okLeft = await waitLane(1);
+  const dl = await page.evaluate(() => window.__dbg());
+  console.log('  sávváltás balra:', JSON.stringify({ lane: dl.lane, pos: dl.pos[0], yaw: dl.yaw }));
+  assert(okLeft, `A-gomb balra vált (lane → ${dl.lane})`);
+  assert(Math.abs(dl.yaw) < 4, `a váltás után kiegyenesedett (yaw=${dl.yaw})`);
+
+  // jobbra váltás: D-gomb → vissza sáv 2
+  await page.keyboard.press('d');
+  const okRight = await waitLane(2);
+  const dr = await page.evaluate(() => window.__dbg());
+  console.log('  sávváltás jobbra:', JSON.stringify({ lane: dr.lane, pos: dr.pos[0] }));
+  assert(okRight, `D-gomb jobbra vált (lane → ${dr.lane})`);
+
+  // szélellenőrzés: a jobb szélső sávban jobbra nyomva nem válthatunk el
+  await page.keyboard.press('d');
+  await sleep(700);
+  assert((await page.evaluate(() => window.__game.player.laneIndex())) === 2, 'a jobb szélen a jobbra-gomb nem vált sávot');
+
+  // --- 2b) indexelés: E (jobbra) jelzés + D váltás = +12 pont ---
+  await page.evaluate(() => window.__jumpLane(1, 0.9)); // sáv 1, közel a jobb szélhez
+  const sigBefore = await page.evaluate(() => window.__dbg().sigOK);
+  await page.keyboard.press('e'); // jobbra index
   const ds0 = await page.evaluate(() => window.__dbg());
-  assert(ds0.sig === -1, `Q = balra index bekapcsolva (sig=${ds0.sig})`);
-  // balra kormányzás, amíg a keresztezés meg nem történik (a SwiftShader-frame-ideje
-  // ingadozik → a rögzített nyomvatartás bunkó; 100 ms-onként polloljuk a sávhatárt,
-  // max 2 s — ez az index autoOff (3 s) előtt befejeződik)
-  const LANE2_LEFT = -1.875; // sáv2→sáv1 határ (laneCenterX(1) + fél sáv)
-  await page.keyboard.down('a');
-  let crossed = false;
-  for (let i = 0; i < 20 && !crossed; i++) {
-    await sleep(100);
-    crossed = await page.evaluate((b) => window.__game.player.chassis.position.x > b, LANE2_LEFT);
-  }
-  await page.keyboard.up('a');
-  await sleep(300);
+  assert(ds0.sig === 1, `E = jobbra index bekapcsolva (sig=${ds0.sig})`);
+  await sleep(400);                 // legalább minLead-ig babillog a lampa
+  await page.keyboard.press('d');   // jobbra váltás
+  const okSig = await waitLane(2);
   const ds1 = await page.evaluate(() => window.__dbg());
   console.log('  indexelt váltás:', JSON.stringify(ds1));
-  assert(crossed, `a sávváltás megtörtént (x=${ds1.pos[0]})`);
-  assert(ds1.sigOK >= 1, `indexelt sávváltásért pont jár (${ds1.sigOK} db)`);
+  assert(okSig, `a jobbra váltás megtörtént (lane=${ds1.lane})`);
+  assert(ds1.sigOK >= sigBefore + 1, `indexelt sávváltásért pont jár (${sigBefore} → ${ds1.sigOK})`);
   assert(ds1.sig === 0, 'a váltás után a villogó lekapcsol');
 
   // --- 3) szünet ---
@@ -151,8 +175,14 @@ try {
 
   // --- 4) baleset ---
   await page.evaluate(() => window.__testCrash());
-  await sleep(3200);
-  const d3 = await page.evaluate(() => window.__dbg());
+  // a gyors ütközés a lassú headless-szimulációban sokáig tarthat → várunk rá
+  const tCrash = Date.now();
+  let d3 = null;
+  while (Date.now() - tCrash < 25000) {
+    d3 = await page.evaluate(() => window.__dbg());
+    if (d3.crashCount >= 1) break;
+    await sleep(150);
+  }
   console.log('  baleset után:', JSON.stringify(d3));
   assert(d3.crashCount >= 1, `ütközés megtörtént (${d3.crashCount}×)`);
   assert(d3.lives <= 2, `élet levonódott (${d3.lives})`);
