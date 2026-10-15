@@ -204,7 +204,7 @@ export class World {
         setInst(postsW, iW++, px, GROUND_Y + 0.55, z);
 
         if ((z * 7 + side * 4) % 5 < 2) {
-          const xOff = side * (BARRIER_X + 2.5 + ((z * 31) % 9));
+          const xOff = side * (BARRIER_X + 2.5 + (((z * 31) % 9) + 9) % 9);
           const zOff = z + ((z * 13) % 5);
           setInst(trees, iT, xOff, GROUND_Y + 0.8, zOff);
           setInst(leaves, iT++, xOff, GROUND_Y + 2.9, zOff, z);

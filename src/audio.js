@@ -5,8 +5,8 @@ export class AudioFX {
   constructor() {
     this.ctx = null;
     this.master = null;
-    this.engineOsc = null;
     this.muted = false;
+    this.musicEl = null;
   }
 
   // Autoplay-szabály: csak felhasználói gesztus után szabad elindítani.
@@ -22,36 +22,30 @@ export class AudioFX {
       this.master = this.ctx.createGain();
       this.master.gain.value = 0.5;
       this.master.connect(this.ctx.destination);
-      this.startEngine();
+      this.startMusic();
     } catch { this.ctx = null; }
   }
 
-  startEngine() {
+  startMusic() {
+    // Háttérzene: mp3, loop = true => a végén újrakezdi magát.
+    if (this.musicEl) return;
     try {
-      if (!this.ctx) return;
-      const osc = this.ctx.createOscillator();
-      const g = this.ctx.createGain();
-      osc.type = 'sawtooth';
-      osc.frequency.value = 55;
-      g.gain.value = 0.02;
-      osc.connect(g).connect(this.master);
-      osc.start();
-      this.engineOsc = { osc, g };
-    } catch { /* nem blokkolunk */ }
+      const el = new Audio('/music/bgm.mp3');
+      el.loop = true;
+      el.volume = this.muted ? 0 : 0.3;
+      el.play().catch(() => {});
+      this.musicEl = el;
+    } catch { /* */ }
   }
 
   setEngine(speedRatio) {
-    if (!this.engineOsc) return;
-    try {
-      const f = 45 + speedRatio * 130;
-      this.engineOsc.osc.frequency.setTargetAtTime(f, this.ctx.currentTime, 0.08);
-      this.engineOsc.g.gain.setTargetAtTime(0.015 + speedRatio * 0.03, this.ctx.currentTime, 0.1);
-    } catch { /* */ }
+    // motorzaj kikapcsolva
   }
 
   toggleMute() {
     this.muted = !this.muted;
     if (this.master) this.master.gain.value = this.muted ? 0 : 0.5;
+    if (this.musicEl) this.musicEl.volume = this.muted ? 0 : 0.3;
     return this.muted;
   }
 

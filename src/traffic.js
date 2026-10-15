@@ -175,7 +175,7 @@ export class Traffic {
       laneArr.sort((a, b) => a.body.position.z - b.body.position.z); // faroktól az orráig
       for (let i = 1; i < laneArr.length; i++) {
         const rear = laneArr[i - 1], front = laneArr[i];
-        if (front.body.position.z - rear.body.position.z < (front.len + rear.len) / 2 + 7) {
+        if (front.body.position.z - rear.body.position.z < (front.len + rear.len) / 2 + 16) {
           rear.speed = front.speed;
         }
       }
@@ -228,10 +228,14 @@ export class Traffic {
     // törlés (lemaradt): csak azok távolodnak a játékostól, akik NÁLA
     // LASSABBAK a hátsó térben — a gyorsabb hátulról közelítők útban maradnak
     // (ők a visszapillantó tükör forgalma!), amíg el nem haladnak.
+    // Az ELÖL messzire kerülők (z > pz + 240) szintén törlődnek: nélkülük a
+    // gyors hátulról érkezők örökre elöl maradnának és betelítenék az autó-
+    // limitet, az út pedig telítődne (a cél-sáv folyamatosan „foglalt” lenne).
     for (let i = this.cars.length - 1; i >= 0; i--) {
       const c = this.cars[i];
       if (c.ghost) continue;
-      if (c.body.position.z < pz - 40 && c.speed <= player.fwdSpeed + 1) {
+      if ((c.body.position.z < pz - 40 && c.speed <= player.fwdSpeed + 1) ||
+          c.body.position.z > pz + 240) {
         this.world.removeBody(c.body);
         this.scene.remove(c.meshes);
         this.byId.delete(c.body.id);
@@ -299,27 +303,31 @@ export class Traffic {
 
   // Üres-e a cél-sáv a kellő „ablakban” egy NPC sávváltáshoz?
   // (a JÁTÉKOS-t is figyelembe vesszük — különben belethernk egy NPC-k bevághat)
+  // FONTOS: a FIZIKAI x-pozíciót nézzük, nem a c.lane attribútumot: az NPC
+  // sávváltás közben (advanceLaneChange) az x már a cél felé gurul, de a lane
+  // csak megérkezéskor frissül — lane-alapú döntés hamis blokkoló/bevágás lenne.
   laneClear(c, toLane, player) {
+    const cx = laneCenterX(toLane);
+    const near = (x) => Math.abs(x - cx) < 2.3; // ~félautó+félautó+ráhagyás
     for (const o of this.cars) {
-      if (o === c || o.ghost || o.lane !== toLane) continue;
+      if (o === c || o.ghost) continue;
       const d = o.body.position.z - c.body.position.z;
-      if (Math.abs(d) < 46) return false; // ~23 m elöl + 23 m mögött
+      if (Math.abs(d) < 46 && near(o.body.position.x)) return false; // ~23 m elöl + 23 m mögött
     }
-    if (player && player.laneIndex() === toLane) {
-      const d = player.pos.z - c.body.position.z;
-      if (Math.abs(d) < 46) return false; // a JÁTÉKOS a cél-sávban, túl közel
-    }
+    if (player && Math.abs(player.pos.z - c.body.position.z) < 46 && near(player.pos.x)) return false;
     return true;
   }
 
   // A JÁTÉKOS cél-sávváltásához: van-e szabad hely a cél-sávban?
-  //  -20 m mögötte … +80 m előtte pú colru.  (A főütközés ebből jön: a játékos
-  //  úgy vált sávot, hogy a cél-sávban már van autó.)
+  //  −changeBehind mögötte … +changeAhead előtte (konfigurálva a constants-ban).
+  //  A FIZIKAI x-pozíciót nézzük (lásd laneClear kommentjét), nem a c.lane-t.
   canChangeTo(to, z) {
+    const cx = laneCenterX(to);
     for (const o of this.cars) {
-      if (o.ghost || o.lane !== to) continue;
+      if (o.ghost) continue;
       const d = o.body.position.z - z; // elöl pozitív
-      if (d > -20 && d < 80) return false;
+      if (d > -TRAFFIC.changeBehind && d < TRAFFIC.changeAhead &&
+          Math.abs(o.body.position.x - cx) < 2.3) return false;
     }
     return true;
   }
@@ -398,9 +406,9 @@ export class Traffic {
     for (const c of this.cars) {
       this.world.removeBody(c.body);
       this.scene.remove(c.meshes);
+      this.byId.delete(c.body.id);
     }
-    this.cars = [];
-    this.byId.clear();
+    this.cars.length = 0;
     this.spawnTimer = 1.0;
     this.time = 0;
   }
@@ -436,18 +444,6 @@ export class Traffic {
     this.world.removeBody(entry.body);
     this.scene.remove(entry.meshes);
     this.byId.delete(entry.body.id);
-  }
-
-  // Minden járművet töröl a becsapásnál (világ-tekercselés): a pálya ugyanaz,
-  // de a forgalmat frissen rendeljük a becsapott (wrapTo-beli) jármű elé.
-  clear() {
-    for (const c of this.cars) {
-      this.world.removeBody(c.body);
-      this.scene.remove(c.meshes);
-      this.byId.delete(c.body.id);
-    }
-    this.cars.length = 0;
-    this.spawnTimer = 0.3; // gyorsan újra induljon a spawnolás
   }
 
   // Világ-visszatekerés: minden járműtestet −Z felé tolunk delta-val.

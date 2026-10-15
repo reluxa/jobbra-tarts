@@ -1,7 +1,7 @@
 // Fő játékvezérlő: render-loop, fizikai rögzített lépés, állapotgép, ütközés-kezelés.
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { CAMERA, DRIVE, PHYS_FIXED, SCORE, SIGNAL, WORLD } from './constants.js';
+import { CAMERA, CAR, DRIVE, PHYS_FIXED, SCORE, SIGNAL, TRAFFIC, WORLD } from './constants.js';
 import { laneCenterX } from './constants.js';
 import { World } from './world.js';
 import { Player } from './player.js';
@@ -113,7 +113,7 @@ export class Game {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x9ec9e8);
-    this.scene.fog = new THREE.Fog(0x9ec9e8, 60, 300);
+    this.scene.fog = new THREE.Fog(0x9ec9e8, 80, 700);
 
     this.camera = new THREE.PerspectiveCamera(CAMERA.fov, window.innerWidth / window.innerHeight, 0.1, 500);
 
@@ -140,14 +140,41 @@ export class Game {
     this.player.setMirrorTexture(this.mirrorRT.texture);
     this.input.onSignal = (d) => { if (this.state === 'play') this.player.toggleSignal(d); };
     this.input.onLane = (d) => {
-      if (this.state !== 'play') return;
-      const from = this.player.laneIndex();
-      const to = Math.max(0, Math.min(2, from + d));
-      if (to !== from && !this.traffic.canChangeTo(to, this.player.pos.z)) {
-        // a cél-sáv foglalt — ne guruljunk bele: ne váltsunk, és jelezzük
-        this.effects.popup('Sáv foglalt!', '#ffd54a', this.player.pos);
+      if (this.state !== 'play') {
+        console.log(`[sávváltás] NINCS VÁLTÁS: a játék nem "play" állapotban van (állapot: ${this.state})`);
         return;
       }
+      const from = this.player.laneIndex();
+      const to = Math.max(0, Math.min(2, from + d));
+      if (to === from) {
+        console.log(`[sávváltás] NINCS VÁLTÁS: már a szélső sávban vagy (irány: ${d}, sáv: ${from}, x: ${this.player.pos.x.toFixed(2)})`);
+        return;
+      }
+      if (!this.traffic.canChangeTo(to, this.player.pos.z)) {
+        // a cél-sáv foglalt — ne guruljunk bele: ne váltsunk, és jelezzük
+        const pz = this.player.pos.z;
+        const cx = laneCenterX(to);
+        let nearest = null;
+        const blockers = this.traffic.cars
+          .filter((c) => !c.ghost &&
+            (c.body.position.z - pz) > -TRAFFIC.changeBehind && (c.body.position.z - pz) < TRAFFIC.changeAhead &&
+            Math.abs(c.body.position.x - cx) < 2.3)
+          .map((c, i) => {
+            const dz = c.body.position.z - pz;                  // + előtt / − mögött
+            const dx = c.body.position.x - cx;                  // oldalirány a cél-sáv közepétől
+            const dist = Math.hypot(dz, dx);                    // valós (egyenes) távolság
+            const gap = dz - CAR.half.z - c.len / 2;            // orr→hátsó lökhárító hézag
+            if (!nearest || Math.abs(dz) < Math.abs(nearest.dz)) nearest = { dz, dist };
+            return `#${i + 1} lane=${c.lane}${c.changeLane != null ? '→' + c.changeLane : ''} seb=${c.speed.toFixed(2)}m/s ⇒ TÁV=${dist.toFixed(2)}m (δz=${dz.toFixed(2)}m ${dz < 0 ? 'MÖGÖTTED' : 'ELŐLED'}, δx(cél-sáv közepe)=${dx.toFixed(2)}m${dz > 0 ? `, orr−farok hézag=${gap.toFixed(2)}m` : ''})`;
+          })
+          .join(' | ');
+        const sum = nearest
+          ? ` Legközelebbi blokkoló: ${nearest.dist.toFixed(2)} m (δz=${nearest.dz.toFixed(2)} m)` : '';
+        console.log(`[sávváltás] NINCS VÁLTÁS: a cél-sáv foglalt (irány: ${d}, játékos sáv: ${from}, x=${this.player.pos.x.toFixed(2)}, cél-sáv: ${to}) — blokkoló: ${blockers || '?'}${sum}`);
+        this.warnLane();
+        return;
+      }
+      console.log(`[sávváltás] VÁLTÁS indítva: balra/jobbra (irány: ${d}) ${from} → ${to}, x=${this.player.pos.x.toFixed(2)}`);
       this.player.requestLaneChange(d);
     };
 
@@ -167,6 +194,101 @@ export class Game {
     this.hud.updateEnergy(100, 0);
     this.hud.updateLives(3);
     this.hud.updateGate(0, 0);
+    this.setupCockpitOverlay();
+  }
+
+  // 2D „belső tér” overlay (réteg 3): a cockpit-fotó a vásznon.  A szélvédőt
+  // (a fényes FELSŐ zónát) kimaszkoljuk: ott átlátszó a textúra, így a 3D világ
+  // látszik át rajta, a többit (műszerfal, kormány, A-oszlopok) a fotó fedi.
+  setupCockpitOverlay() {
+    this.cockpitOverlayReady = false;
+    this.cockpitOverlayCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    // KÜLÖN jelenet az overlay-nek: nincs background-ja, így a második render
+    // NEM festi újra az eget a világ fölé (a fő jelenet background-ja a
+    // szélvédőn át kilátszó eget adná, de a második menetben nem szabad
+    // törölni/festeni — csak a fotót kell rátenni a világra).
+    this.cockpitOverlayScene = new THREE.Scene();
+    const mat = new THREE.MeshBasicMaterial({
+      transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide,
+    });
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
+    plane.renderOrder = 999;
+    this.cockpitOverlayScene.add(plane);
+
+    // Az élő visszapillantó-tükör kép a fotó „üres” tükörüvege helyére kerül:
+    // egy képernyőhöz rögzített quad az overlay-jelenetben (a fotó fölött
+    // rajzolunk, a tükör lyukjában, így a hátsó nézet látszik a keretben).
+    this.mirrorQuadMat = new THREE.MeshBasicMaterial({
+      depthTest: false, depthWrite: false, toneMapped: false,
+    });
+    const mirrorQuad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mirrorQuadMat);
+    mirrorQuad.renderOrder = 998; // a fotó (999) alá, de a világ fölé
+    this.cockpitOverlayScene.add(mirrorQuad);
+    this.mirrorQuad = mirrorQuad;
+
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const cv = document.createElement('canvas');
+        cv.width = img.width; cv.height = img.height;
+        const ctx = cv.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const idata = ctx.getImageData(0, 0, cv.width, cv.height);
+        const d = idata.data, W = cv.width, H = cv.height;
+        for (let y = 0; y < H; y++) {
+          for (let x = 0; x < W; x++) {
+            const i = (y * W + x) * 4;
+            const lum = (d[i] + d[i + 1] + d[i + 2]) / 3;
+            if (y < H * 0.54) {
+              // felső zóna: a világos (a világ felé mutató) rész = szélvédő → átlátszó
+              d[i + 3] = Math.round(THREE.MathUtils.clamp((125 - lum) / 50, 0, 1) * 255);
+            } else {
+              d[i + 3] = 255; // alsó: műszerfal — fedi a világot
+            }
+          }
+        }
+
+        // A fotó belső tükre a jobb felső sötét blokk: megkeressük, és az
+        // ÜVEGRÉSZÉT átlátszóvá lyukasztjuk (a keret marad), oda rajzoljuk az
+        // élő visszapillantó-képet.
+        let mx0 = W, mx1 = 0, my0 = H, my1 = 0;
+        for (let y = 0; y < H * 0.3; y++) {
+          for (let x = W * 0.5; x < W; x++) {
+            const j = (y * W + x) * 4;
+            if (d[j + 3] > 128 && (d[j] + d[j + 1] + d[j + 2]) / 3 < 110) {
+              if (x < mx0) mx0 = x; if (x > mx1) mx1 = x;
+              if (y < my0) my0 = y; if (y > my1) my1 = y;
+            }
+          }
+        }
+        if (mx1 - mx0 > 60 && my1 - my0 > 20) {
+          const ix = 16, iy = 10; // a keret kihagyása
+          const gx0 = mx0 + ix, gx1 = mx1 - ix, gy0 = my0 + iy, gy1 = my1 - iy;
+          for (let y = gy0; y < H * 0.3 && y < gy1; y++) {
+            for (let x = gx0; x < gx1; x++) d[(y * W + x) * 4 + 3] = 0;
+          }
+          this.mirrorQuad.position.set(
+            2 * ((gx0 + gx1) / 2 / W) - 1,   // NDC-közép X
+            1 - (gy0 + gy1) / H,             // NDC-közép Y (fotó-frakcióból)
+            0
+          );
+          this.mirrorQuad.scale.set(2 * (gx1 - gx0) / W, 2 * (gy1 - gy0) / H, 1);
+          // a tükrös textúrát a setMirrorTexture már előkészítette (UV-flip)
+          this.mirrorQuadMat.map = this.mirrorRT.texture;
+          this.mirrorQuadMat.needsUpdate = true;
+        }
+
+        ctx.putImageData(idata, 0, 0);
+        const tex = new THREE.CanvasTexture(cv);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        mat.map = tex;
+        mat.needsUpdate = true;
+        this.cockpitOverlayReady = true;
+      } catch (e) {
+        console.warn('Cockpit-overlay hiba:', e);
+      }
+    };
+    img.src = 'cockpit.png';
   }
 
   initEvents() {
@@ -333,6 +455,15 @@ export class Game {
     setTimeout(() => { this.tipT = TIP_DELAY; }, 3200);
   }
 
+  // Nagy figyelmeztetés: nem engedettük a sávváltást (a blokkoló autó miatt).
+  warnLane() {
+    const el = $('laneWarn');
+    el.textContent = 'SÁV FOGLALT!';
+    el.classList.remove('warn');
+    void el.offsetWidth; // reflow → az animáció mindig újra indul
+    el.classList.add('warn');
+  }
+
   renderTip() {
     const tip = TIPS[this.tipIdx % TIPS.length];
     this.hud.setHint(tip + '<small><b>Jobbra tartás:</b> A/D sávváltás • Q/E index • P szünet • M hang</small>');
@@ -418,13 +549,13 @@ export class Game {
     this.world.update(this.dist);
     // világ-„végtelenítés": a világ STATIKUS [start,end]; ha a játékos a far
     // felé ér, őt a wrapTo-ba teleportáljuk vissza (a világ nem tolódik, így
-    // előtte mindig teljes út van — ez újrafinalizál); a forgalmat frissen
-    // rendeljük a becsapásnál.
+    // előtte mindig teljes út van — ez újrafinalizál); a forgalmat ugyanazzal
+    // a delta-val visszatekerjük, így az autók a helyükön maradnak körülöttünk.
     if (this.player.pos.z > WORLD.wrapAt) {
       const snapZ = this.player.pos.z - WORLD.wrapTo;
       const delta = Math.round(snapZ / WORLD.tile) * WORLD.tile;
       this.player.wrapZ(delta);
-      this.traffic.clear();
+      this.traffic.wrap(delta);
     }
     // árnyékkamera kövesse a játékost (különben az árnyék a startnál reked)
     this.world.shadowTarget.position.copy(this.player.pos);
@@ -482,11 +613,17 @@ export class Game {
       this.effects.getShakeOffset(this.shakeTmp);
       const cockpit = this.state === 'play';
       if (cockpit) {
-        // belső nézet: út + belsőtér (a saját karosszéria elrejtődik,
-        // mert a belső elemek a modell héjába esnének — a tükröt a tükör-kamera
-        // különben is láttatja)
+        // visszapillantó tükör: a hátsó nézet külön render a mirrorRT-ba,
+        // az overlay-quad mutatja a fotó tükörüvege helyén
+        this.player.positionMirror(this.mirrorCam);
+        this.mirrorCam.updateMatrixWorld();
+        this.renderer.setRenderTarget(this.mirrorRT);
+        this.renderer.autoClear = true;
+        this.renderer.render(this.scene, this.mirrorCam);
+        this.renderer.setRenderTarget(null);
+        // belső nézet: a világ (0) + a cockpit-fotó overlay (a fotó fedi a
+        // műszerfalat; a szélvédő kimaszkolt része átengedi a 3D világot).
         this.camera.layers.set(0);
-        this.camera.layers.enable(2);
       } else {
         this.camera.layers.set(0);
         this.camera.layers.enable(1); // külső nézet: út + a saját autó váza
@@ -494,17 +631,18 @@ export class Game {
       this.player.updateCamera(this.camera, rdt, this.shakeTmp, cockpit ? 'cockpit' : 'chase');
       this.camera.updateMatrixWorld();
 
-      // visszapillantó tükör (csak vezetés közben kell): a tükör-kamera egy
-      // kis céltextúrába rajzolja a hátsó nézetet, amelyet a belső tükörüveg mutat.
-      if (cockpit) {
-        this.renderer.shadowMap.enabled = false;
-        this.renderer.setRenderTarget(this.mirrorRT);
-        this.player.positionMirror(this.mirrorCam);
-        this.renderer.render(this.scene, this.mirrorCam);
-        this.renderer.setRenderTarget(null);
-        this.renderer.shadowMap.enabled = true;
+      if (cockpit && this.cockpitOverlayReady) {
+        // 1. külön render a világra (háttér törlés átírja a bg színhez),
+        // 2. a fotó-overlay a tetejére (depthTest kikapcs → mindig elöl,
+        //    a kimaszkolt szélvédő átlátszó → ott kilátszik a világ).
+        this.renderer.autoClear = true;
+        this.renderer.render(this.scene, this.camera);
+        this.renderer.autoClear = false;
+        this.renderer.render(this.cockpitOverlayScene, this.cockpitOverlayCam);
+        this.renderer.autoClear = true;
+      } else {
+        this.renderer.render(this.scene, this.camera);
       }
-      this.renderer.render(this.scene, this.camera);
     };
     requestAnimationFrame(loop);
   }

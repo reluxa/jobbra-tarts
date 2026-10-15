@@ -54,9 +54,9 @@ export const DRIVE = {
 // ---- Forgalom ----
 // Sávonkénti sebességtartomány (m/s) és kamion-arány.
 export const TRAFFIC = {
-  spawnBase: 0.95,  // átlagos spawn-időköz (s)
-  spawnMin: 0.5,
-  maxCars: 22,
+  spawnBase: 1.25,  // átlagos spawn-időköz (s)
+  spawnMin: 0.85,
+  maxCars: 12,      // felső autó-limit; enélkül az út telítődik (22/210 m ≈ 14 m kocsinként!)
   waits: [0.2, 0.38, 0.42],   // sáv kiválasztás valószínűsége (bal, közép, jobb)
   speedByLane: [
     [30, 38],   // bal (belső): gyorsak 108–137
@@ -68,10 +68,12 @@ export const TRAFFIC = {
   spawnNear: 95,        // legközelebbi spawn-távolság (m)
   spawnSpan: 75,        // spawn-eltolástartomány (m)
   minGap: 55,           // azonos sávú min. távolság a spawn-nál
-  behindChance: 0.5,    // esély, hogy a spawn hátulról jövő gyors autót rakjon (tükör!)
+  behindChance: 0.35,   // esély, hogy a spawn hátulról jövő gyors autót rakjon (tükör!)
   behindStart: 70,      // indulási távolság mögöttünk (m)
   behindSpan: 70,
   behindSpeed: [38, 46], // a gyors bal-sávos utolérők sebessége (m/s)
+  changeAhead: 9,        // játékos sávváltás: ezen belül ELŐL blokkol a cél-sávban lévő autó (m)
+  changeBehind: 20,      // játékos sávváltás: ezen belül MÖGÖTT is blokkol (m)
 };
 
 // ---- Pontozás / kapu-pálya --------------------
@@ -114,7 +116,7 @@ export const CAMERA = {
   lookAhead: 5.5,
   fov: 62,
   shakeK: 1.0,
-  cockpit: { x: 0.38, y: 1.02, z: 0.12, lookAhead: 20, lookY: 0.55 },
+  cockpit: { x: 0.32, y: 1.2, z: 0.12, lookAhead: 16, lookY: -2.6 },
   mirror: { front: 1.05, height: 1.5, fov: 46, lookBack: 70, lookY: 0.25 },
   // a céltextúra oldalarányát az üveghez igazítjuk (úveg 0.27x0.08 → 3.375:1),
   // hogy ne torzuljon; magasabb felbontás = élesebb tükörkép.

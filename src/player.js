@@ -472,7 +472,10 @@ export class Player {
   // Egy gombnyomás = EGY sávváltás a kért irányba, amit a játék automatikusan
   // elvégez (átgurul az új sáv közepére és kiegyenesedik). Lekérő irány: -1 balra, +1 jobbra.
   requestLaneChange(dir) {
-    if (this.laneChange) return;              // már váltunk éppen
+    if (this.laneChange) {
+      console.log(`[sávváltás] NINCS VÁLTÁS: még folyamatban van az előző (maradék: ${this.laneChange.t.toFixed(2)}s, irány: ${dir})`);
+      return;
+    }
     const from = this.laneIndex();
     const to = clamp(Math.round(from + dir), 0, 2);
     if (to === from) return;                  // a szélen nem tudunk odébb menni
