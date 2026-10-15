@@ -4,6 +4,7 @@
 // hangokat/effekteket és az állapotgépet tartja, az eseményekből építve.
 import * as THREE from 'three';
 import { CAMERA, PHYS_FIXED, SCORE, SIGNAL, TRAFFIC, laneCenterX } from './constants.js';
+import { carveTransparent, carvePockets } from './mask.js';
 import { World } from './world.js';
 import { Player } from './player.js';
 import { TrafficView } from './traffic.js';
@@ -235,9 +236,10 @@ export class Game {
     this.warnLane();
   }
 
-  // 2D „belső tér” overlay (réteg 3): a cockpit-fotó a vásznon.  A szélvédőt
-  // (a fényes FELSŐ zónát) kimaszkoljuk: ott átlátszó a textúra, így a 3D világ
-  // látszik át rajta, a többit (műszerfal, kormány, A-oszlopok) a fotó fedi.
+  // 2D „belső tér” overlay (réteg 3): a cockpit-fotó a vásznon.  A fotón a
+  // szélvédő-kivágás tele van egy stúdiófallal — azt a betöltéskor átlátszóra
+  // maszkoljuk (carveTransparent), így a szélvédőn át a 3D világ látszik; a
+  // többit (műszerfal, kormány, A-oszlopok) a fotó fedi.
   setupCockpitOverlay() {
     this.cockpitOverlayReady = false;
     this.cockpitOverlayCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -285,6 +287,32 @@ export class Game {
             }
           }
         }
+
+        // A fotó szélvédőjén át a 3D világnak kell látszania, de a fotóban a
+        // "táj" egy stúdiófal — és a fal alsó részét a softbox fénye-árnyéka
+        // sávokra vágja. Először a fő falat szívjuk ki (alacsonyabb
+        // fényküszöbbel, hogy a sötétebb sávokon is átjárjon), majd célzott
+        // magokkal (carvePockets) a maszk alatt maradt zsebeket is
+        // (a zsebeket sötét sávok zárják — a kormányt, műszerfalat nem éri).
+        const carved = carveTransparent(
+          d, W, H,
+          [
+            [W * 0.45, H * 0.2], [W * 0.2, H * 0.24], [W * 0.75, H * 0.2],
+            [W * 0.95, H * 0.2], [W * 0.04, H * 0.35], // az utolsó: bal oldali ablak
+          ],
+          { minBright: 95, maxSat: 60, yMax: H * 0.78 }
+        );
+        const carved2 = carvePockets(
+          d, W, H,
+          [
+            [W * 0.45, H * 0.53], [W * 0.35, H * 0.55], [W * 0.62, H * 0.54],
+            [W * 0.8, H * 0.55],
+          ],
+          { minBright: 90, yMin: H * 0.45, yMax: H * 0.72 }
+        );
+        if (carved + carved2 < 25000)
+          console.warn('Cockpit-overlay: a szélvédő-maszk alig talált falat', carved, carved2);
+
         if (mx1 - mx0 > 60 && my1 - my0 > 20) {
           const ix = 16, iy = 10; // a keret kihagyása
           const gx0 = mx0 + ix, gx1 = mx1 - ix, gy0 = my0 + iy, gy1 = my1 - iy;
@@ -309,7 +337,7 @@ export class Game {
         mat.needsUpdate = true;
         this.cockpitOverlayReady = true;
       } catch (e) {
-        console.warn('Cockpit-overlay hiba:', e);
+        console.warn('Cockpit-overlay hiba:', e && e.message, (e && e.stack || '').split('\n')[1]);
       }
     };
     img.src = 'cockpit.png';
