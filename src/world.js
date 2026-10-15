@@ -6,6 +6,26 @@ import { BARRIER_X, GROUND_Y, ROAD_HALF, SHOULDER, WORLD } from './constants.js'
 const W_END = WORLD.start + WORLD.length;   // z = +12000
 const W_CENTER = (WORLD.start + W_END) / 2; // 5000
 
+// ---- Tisztán tesztelhető díszlet-matematika (a buildScenery ugyanezt használja) ----
+
+// Pozitívra kényszerített moduló — a díszlet sűrűség-eloszlásai körbefüggőek
+// maradnak negatív z-knél is (a tekercselés-végtelen út invariánsa).
+export const posMod = (n, m) => ((n % m) + m) % m;
+
+// Fák: 14 m-ként, oldalanként ~40% esély. UGYANAZ a feltétel, amit a
+// darabszámoltató és a feltöltő ciklus is használ (a kettő nem térhet el).
+export const hasTree = (z, side) => ((z * 7 + side * 4) % 5) < 2;
+
+// Tábla: 14 m-ként, oldalanként 1/11 esély.
+export const hasSign = (z, side) => ((z * 3 + side) % 11) === 0;
+
+// A fa x-eltolása az úttól (soha nem érhet az útburkolatra/sávok fölé).
+export const treeOffset = (z) => ((z * 31) % 9 + 9) % 9;
+
+// A textúra-eltolás: 12 m-enként ismétlődő, a tile-hoz igazodó
+// (a wrap() térbeli periódusát képviseli a festett aszfalt is).
+export const roadOffset = (distance, tile) => (-(distance || 0) / tile) % 1;
+
 export class World {
   constructor(scene) {
     this.scene = scene;
@@ -147,8 +167,8 @@ export class World {
     for (let z = WORLD.start; z < W_END; z += 14) {
       for (const side of [-1, 1]) {
         nPost += 2;
-        if ((z * 7 + side * 4) % 5 < 2) nTree++;
-        if ((z * 3 + side) % 11 === 0) { nSign++; nSignPost += 2; }
+        if (hasTree(z, side)) nTree++;
+        if (hasSign(z, side)) { nSign++; nSignPost += 2; }
       }
     }
 
@@ -176,13 +196,13 @@ export class World {
         setInst(posts, iP++, px, GROUND_Y + 0.28, z);
         setInst(postsW, iW++, px, GROUND_Y + 0.55, z);
 
-        if ((z * 7 + side * 4) % 5 < 2) {
-          const xOff = side * (BARRIER_X + 2.5 + (((z * 31) % 9) + 9) % 9);
+        if (hasTree(z, side)) {
+          const xOff = side * (BARRIER_X + 2.5 + treeOffset(z));
           const zOff = z + ((z * 13) % 5);
           setInst(trees, iT, xOff, GROUND_Y + 0.8, zOff);
           setInst(leaves, iT++, xOff, GROUND_Y + 2.9, zOff, z);
         }
-        if ((z * 3 + side) % 11 === 0) {
+        if (hasSign(z, side)) {
           const sx = side * (BARRIER_X + 1.9);
           setInst(signsPost, iSP++, sx, GROUND_Y + 1.3, z);
           setInst(signsPost, iSP++, sx, GROUND_Y + 1.3, z);
@@ -273,8 +293,7 @@ export class World {
   // A textúra-eltolás adja a haladás érzetét (a sávfestés "fut" a játékos felé).
   update(distance) {
     if (this.roadTex) {
-      const d = distance || 0;
-      this.roadTex.offset.y = (-d / this.tileLen) % 1;
+      this.roadTex.offset.y = roadOffset(distance, this.tileLen);
     }
   }
 }

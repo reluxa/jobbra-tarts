@@ -2,6 +2,18 @@
 // Sávváltás-fókuszú irányítás: a bal/jobb gomb EGY automatikus sávváltást indít
 // (a tényleges váltást a Player végzi), nem folyamatos kormányzás.
 
+// Tiszta billentyű→akció leképezés (tesztelhető).
+// Visszaad: null (nem játszó gomb) vagy { bind: 'lane'|'signal', dir, prevent, repeat }.
+export function keyAction(key, repeat) {
+  const k = String(key).toLowerCase();
+  const prevent = ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k);
+  if (k === 'a' || k === 'arrowleft') return { bind: 'lane', dir: -1, prevent, repeat };
+  if (k === 'd' || k === 'arrowright') return { bind: 'lane', dir: 1, prevent, repeat };
+  if (k === 'q') return { bind: 'signal', dir: -1, prevent, repeat };
+  if (k === 'e') return { bind: 'signal', dir: 1, prevent, repeat };
+  return prevent ? { bind: null, dir: 0, prevent, repeat } : null;
+}
+
 export class Input {
   constructor() {
     this.enabled = true;
@@ -24,18 +36,12 @@ export class Input {
   }
 
   keydown(e) {
-    const k = e.key.toLowerCase();
-    if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k)) e.preventDefault();
+    const act = keyAction(e.key, e.repeat);
+    if (act && act.prevent) e.preventDefault();
     if (this.onAnyKey) this.onAnyKey();
-
     // az ismételt gombnyomás (lenyomva tartás) ne spamelje a sávváltást
-    if (k === 'a' || k === 'arrowleft' || k === 'd' || k === 'arrowright' ||
-        k === 'q' || k === 'e') {
-      if (e.repeat) return;
-      if (k === 'a' || k === 'arrowleft') this.onLane && this.onLane(-1);
-      else if (k === 'd' || k === 'arrowright') this.onLane && this.onLane(1);
-      else if (k === 'q') this.onSignal && this.onSignal(-1);
-      else if (k === 'e') this.onSignal && this.onSignal(1);
-    }
+    if (!act || !act.bind || act.repeat) return;
+    if (act.bind === 'lane') this.onLane && this.onLane(act.dir);
+    else this.onSignal && this.onSignal(act.dir);
   }
 }

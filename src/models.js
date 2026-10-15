@@ -18,8 +18,9 @@ loader.setDRACOLoader(draco);
 // szerint előre = +Z), vízszintesen középre húzza, és az alját a talajszintre
 // (a kerekek a 0-n állnak). A visszaadott Group közvetlenül beilleszthető.
 // flipYaw: MODELS.flip jelzi, hogy a modell orra -Z-be néz (pl. a ferrari.glb),
-// ilyenkor 180°-kal elfordítjuk.
-function normalizeModel(scene, targetLen, flipYaw) {
+// ilyenkor 180°-kal elfordítjuk.  Külön exportálva, mert tiszta THREE-művelet
+// (tesztelhető modell-betöltés nélkül is).
+export function normalizeModel(scene, targetLen, flipYaw) {
   const g = new THREE.Group();
   g.add(scene.clone(true));
   const box = new THREE.Box3().setFromObject(g);

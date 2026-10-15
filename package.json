@@ -11,7 +11,9 @@
     "smoke": "node scripts/smoke.mjs",
     "sim": "node scripts/sim-run.mjs",
     "sim:check": "node scripts/sim-check.mjs",
-    "sim:parity": "node scripts/sim-parity.mjs"
+    "sim:parity": "node scripts/sim-parity.mjs",
+    "test": "node --test \"tests/**/*.test.mjs\"",
+    "test:cov": "node --experimental-test-coverage --test-coverage-include=src/** --test-coverage-exclude=src/main.js --test-coverage-lines=80 --test \"tests/**/*.test.mjs\""
   },
   "dependencies": {
     "three": "^0.169.0"

@@ -1,0 +1,107 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { installDomStubs } from './helpers/dom-stubs.js';
+import { HUD, formatLives, batteryHue } from '../src/hud.js';
+
+const { document, localStorage, makeEl } = installDomStubs();
+
+function mkHud() {
+  const ids = ['score', 'best', 'mult', 'streak', 'lives', 'ecoFill', 'ecoVal',
+    'secFill', 'speed', 'hintBox', 'flash', 'sigL', 'sigR'];
+  const el = {};
+  for (const id of ids) el[id] = makeEl();
+  document.register(el);
+  return new HUD();
+}
+
+// ---- tiszta formázó-segédek ----
+test('formatLives: szívek, hiányzó életek üresek', () => {
+  assert.equal(formatLives(3), '❤'.repeat(3));
+  assert.equal(formatLives(2), '❤'.repeat(2) + '🖤');
+  assert.equal(formatLives(0), '🖤'.repeat(3));
+  assert.equal(formatLives(5), '❤'.repeat(5) + '🖤'.repeat(0), '5 fölé nem negatív üres');
+  assert.equal(formatLives(-1), '🖤'.repeat(3));
+});
+
+test('batteryHue: 100% → zöld, 0% → piros, monoton csökken', () => {
+  assert.equal(batteryHue(100), 120);
+  assert.equal(batteryHue(0), 6);
+  assert.equal(batteryHue(50), 60);
+  let prev = batteryHue(100);
+  for (let p = 90; p >= 0; p -= 10) {
+    const h = batteryHue(p);
+    assert.ok(h >= prev || h <= prev + 1e-9, `monoton: ${p} → ${h}`);
+    prev = h;
+  }
+  assert.ok(batteryHue(150) > 120, '100 felett is számol (a CSS-nek kell clampolnia)');
+});
+
+// ---- a DOM-pilléreken futó HUD ----
+test('HUD: a legjobb pontszám a localStorage-ból jön, frissül, ha új csúcs van', () => {
+  localStorage.setItem('jobbra_tartas_best', '1234');
+  const h = new HUD();
+  assert.equal(h.best, 1234);
+  h.showBestIfNew(500);
+  assert.equal(h.best, 1234, 'alacsonyabb nem írja felül');
+  h.showBestIfNew(2000);
+  assert.equal(h.best, 2000);
+  assert.equal(localStorage.getItem('jobbra_tartas_best'), '2000');
+});
+
+test('HUD: elemmegjelenítések', () => {
+  const h = mkHud();
+  h.updateScore(12345);
+  assert.equal(h.el.score.textContent, '12 345');
+  assert.ok(h.el.score.textContent.length >= 5);
+  h.updateSpeed(97.6);
+  assert.equal(h.el.speed.textContent, 98);
+  h.updateGate(3, 0.75, 74.5);
+  assert.equal(h.el.mult.textContent, 'KAPU 4');
+  assert.ok(h.el.streak.textContent.includes('74.5'));
+  h.updateLives(1);
+  assert.equal(h.el.lives.textContent, '❤🖤🖤');
+});
+
+test('HUD: updateEnergy a százalékot és a színárnyalatot állítja', () => {
+  const h = mkHud();
+  h.updateEnergy(34, 0.5);
+  assert.equal(h.el.ecoVal.textContent, '34%');
+  assert.equal(h.el.ecoFill.style.width, '34%');
+  assert.equal(h.el.ecoFill.style.background, `hsl(${batteryHue(34)}, 85%, 42%)`);
+  assert.equal(h.el.secFill.style.width, '50%');
+  h.updateEnergy(150, 1); // clamp a HUD-on
+  assert.equal(h.el.ecoFill.style.width, '100%');
+  h.updateEnergy(-5, 0);
+  assert.equal(h.el.ecoFill.style.width, '0%');
+});
+
+test('HUD: updateSignal — csak változáskor újrarajzol, a helyes oldalt villogtatja', () => {
+  const h = mkHud();
+  h.updateSignal(-1);
+  assert.equal(h.el.sigL.style.animation, 'sigblink 1.32s linear infinite');
+  assert.equal(h.el.sigR.style.animation, 'none');
+  // ugyanaz a jel: korai visszatérés, semmi nem íródik
+  h.el.sigL.style.animation = 'MANUAL';
+  h.updateSignal(-1);
+  assert.equal(h.el.sigL.style.animation, 'MANUAL', 'azonos jelnél nincs újrarajzolás');
+  h.updateSignal(1);
+  assert.equal(h.el.sigR.style.animation, 'sigblink 1.32s linear infinite');
+  assert.equal(h.el.sigL.style.animation, 'none');
+  assert.equal(h.el.sigR.style.opacity, 0.25, 'a másik oldal a korábbi off-kezelést tartja');
+  h.updateSignal(0);
+  assert.equal(h.el.sigR.style.animation, 'none');
+  assert.equal(h.el.sigL.style.opacity, 0.25);
+});
+
+test('HUD: flash és setHint a DOM-ra ír', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = mkHud();
+  h.flash();
+  assert.equal(h.el.flash.style.opacity, 0.8);
+  assert.equal(h.el.flash.style.transition, 'none');
+  t.mock.timers.tick(50); // a rAF lefut
+  assert.equal(h.el.flash.style.opacity, 0);
+  assert.equal(h.el.flash.style.transition, 'opacity 0.5s ease');
+  h.setHint('<b>kia</b>');
+  assert.equal(h.el.hint.innerHTML, '<b>kia</b>');
+});

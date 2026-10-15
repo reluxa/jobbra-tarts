@@ -1,6 +1,14 @@
 // HUD: DOM-elemek frissítése. Mindent a main hívogat.
 const $ = (id) => document.getElementById(id);
 
+// ---- Tiszta formázó-segédek (tesztelhetők) ----
+
+// Szívek: n meglévő + (3−n) üres. Negatív/nagy n is biztonságos (nem dob a repeat).
+export const formatLives = (n) => '❤'.repeat(Math.max(0, n)) + '🖤'.repeat(Math.max(0, 3 - Math.max(0, n)));
+
+// Az időbar színe a százalékból: zöld (120°H) → piros (6°), soha nem 0-ra.
+export const batteryHue = (pct) => Math.max(6, (pct / 100) * 120);
+
 export class HUD {
   constructor() {
     this.el = {
@@ -30,8 +38,7 @@ export class HUD {
     this.el.ecoVal.textContent = Math.round(pct) + '%';
     this.el.ecoFill.style.width = Math.max(0, Math.min(100, pct)) + '%';
     // piros ha veszélyben az idő, zöld ha bőven van
-    const hue = Math.max(6, (pct / 100) * 120);
-    this.el.ecoFill.style.background = `hsl(${hue}, 85%, 42%)`;
+    this.el.ecoFill.style.background = `hsl(${batteryHue(pct)}, 85%, 42%)`;
     this.el.secFill.style.width = (gateFrac * 100) + '%';
   }
 
@@ -42,7 +49,7 @@ export class HUD {
   }
 
   updateLives(n) {
-    this.el.lives.textContent = '❤'.repeat(n) + '🖤'.repeat(Math.max(0, 3 - n));
+    this.el.lives.textContent = formatLives(n);
   }
 
   // indexjelző nyilak (0 = ki, -1 = balra, +1 = jobbra)
