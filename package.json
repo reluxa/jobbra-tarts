@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "smoke": "node scripts/smoke.mjs",
     "sim": "node scripts/sim-run.mjs",
-    "sim:check": "node scripts/sim-check.mjs"
+    "sim:check": "node scripts/sim-check.mjs",
+    "sim:parity": "node scripts/sim-parity.mjs"
   },
   "dependencies": {
     "three": "^0.169.0"

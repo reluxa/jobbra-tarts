@@ -1,6 +1,11 @@
 // Esemény- és mintanapló egy szimulációs futásról: ezt nyomtatja ki az
 // ellenőrző, és ebből rajzol a sim-view.html idővonal.
 //
+// FONTOS: az eseményekhez tartozó autó-adatokat (pl. az elhaladás pillanatában
+// az autó pozíciója) a RÖGZÍTÉS PILLANATÁBAN kell lefényképezni — élő objektum
+// referenciát tárolva a napló a futás VÉGÉN elavult értéket mutatna (a paritás-
+// teszt ezért nem is egyezne a böngészőoldali azonnali pillanatképpel).
+//
 // Formátum (JSON):
 //   { meta: {seed, dt, laps…}, events: [{t, kind, …}], samples: [{t, z, lane,
 //     kmh, gateT, energy, cars, score}], ended: {ok, reason, stats} }
@@ -12,7 +17,7 @@ export class TraceRecorder {
     this.events = [];
     this.samples = [];
     this.lastSample = 0;
-    engine.onEvent = (ev) => this.events.push(ev);
+    engine.onEvent = (ev) => this.events.push(JSON.parse(JSON.stringify(ev)));
   }
 
   sample() {
