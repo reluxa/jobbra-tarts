@@ -3,15 +3,16 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Jobbra tartás — 3D autópálya-játék böngészőbe (Three.js + cannon-es)",
+  "description": "Jobbra tartás — 3D autópálya-játék böngészőbe (Three.js + saját sim-mag)",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "sim": "node scripts/sim-run.mjs",
+    "sim:check": "node scripts/sim-check.mjs"
   },
   "dependencies": {
-    "cannon-es": "^0.20.0",
     "three": "^0.169.0"
   },
   "devDependencies": {

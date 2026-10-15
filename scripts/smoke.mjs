@@ -105,21 +105,17 @@ try {
   // --- 2) sávváltás-fókusz: egy gombnyomás = egy automatikus sávváltás ---
   // először kitakarítjuk a közelből a forgalmat, hogy a váltóteszt ne akadjon össze velük
   await page.evaluate(() => {
-    const g = window.__game; const pz = g.player.pos.z;
-    for (let i = g.traffic.cars.length - 1; i >= 0; i--) {
-      const c = g.traffic.cars[i];
-      if (Math.abs(c.body.position.z - pz) < 80) {
-        g.worldPhys.removeBody(c.body); g.scene.remove(c.meshes);
-        g.traffic.byId.delete(c.body.id); g.traffic.cars.splice(i, 1);
-      }
-    }
+    const g = window.__game; const pz = g.engine.player.z;
+    g.engine.cars = g.engine.cars.filter((c) => Math.abs(c.z - pz) >= 80);
+    g.traffic.clear();
+    g.traffic.sync(g.engine.cars);
   });
   const waitLane = async (want, ms = 25000) => {
     const t0 = Date.now();
     while (Date.now() - t0 < ms) {
       const st = await page.evaluate(() => ({
-        lane: window.__game.player.laneIndex(),
-        done: window.__game.player.laneChange === null,
+        lane: window.__game.engine.player.laneIndex(),
+        done: window.__game.engine.player.laneChange === null,
       }));
       if (st.lane === want && st.done) return true; // csak a VÁLTÁS VÉGÉN várjuk meg
       await sleep(80);
@@ -148,7 +144,7 @@ try {
   // szélellenőrzés: a jobb szélső sávban jobbra nyomva nem válthatunk el
   await page.keyboard.press('d');
   await sleep(700);
-  assert((await page.evaluate(() => window.__game.player.laneIndex())) === 2, 'a jobb szélen a jobbra-gomb nem vált sávot');
+  assert((await page.evaluate(() => window.__game.engine.player.laneIndex())) === 2, 'a jobb szélen a jobbra-gomb nem vált sávot');
 
   // --- 2b) indexelés: E (jobbra) jelzés + D váltás = +12 pont ---
   await page.evaluate(() => window.__jumpLane(1, 0.9)); // sáv 1, közel a jobb szélhez

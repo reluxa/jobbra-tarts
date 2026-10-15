@@ -1,27 +1,18 @@
 // A statikus világ: út (textúrával, eltolódó sáv-festéssel), útburkolati jelek,
-// zöld terület, fák, korlát + a korlátok ütközési testjei.
-//
-// A világ hosszú, de véges; amikor a játékos a világ végét éri, a teljes világot
-// (staticGroup + fizikai testek) visszatekerjük a wrap() módszerrel. A játékos
-// és a forgalom ugyanazzal a value-val tolódik el (lásd main/traffic), így a
-// kamera relációja változatlan — nincs látható ugrás.
+// zöld terület, fák, korlát. Puszta látvány — a fizikát a sim-mag adja.
 import * as THREE from 'three';
-import * as CANNON from 'cannon-es';
-import { BARRIER_X, CAR, GROUND_Y, LANE_W, ROAD_HALF, SHOULDER, WORLD } from './constants.js';
+import { BARRIER_X, GROUND_Y, ROAD_HALF, SHOULDER, WORLD } from './constants.js';
 
 const W_END = WORLD.start + WORLD.length;   // z = +12000
 const W_CENTER = (WORLD.start + W_END) / 2; // 5000
 
 export class World {
-  constructor(scene, world) {
+  constructor(scene) {
     this.scene = scene;
-    this.world = world;
     this.roadTex = null;
     this.tileLen = WORLD.tile;
-    this.staticBodies = [];
 
-    // minden statikus látvány ebbe a csoportba kerül, hogy a tekercs egyetlen
-    // position-változással vigye őket együtt
+    // minden statikus látvány ebbe a csoportba kerül
     this.staticGroup = new THREE.Group();
     this.scene.add(this.staticGroup);
 
@@ -55,17 +46,7 @@ export class World {
   }
 
   buildGround() {
-    // Hatalmas statikus doboz a talajnak: a cannon-es Plane-nek NINCS raycast-ja,
-    // pedig a RaycastVehicle kerekei raycasttel tapogatják le a felszínt.
-    const groundBody = new CANNON.Body({
-      type: CANNON.Body.STATIC,
-      shape: new CANNON.Box(new CANNON.Vec3(600, 2, WORLD.length / 2)),
-      position: new CANNON.Vec3(0, -2, W_CENTER),
-    });
-    this.world.addBody(groundBody);
-    this.staticBodies.push(groundBody);
-
-    // fű (nagy sík) — a staticGroupban, hogy a tekercs vigye
+    // fű (nagy sík)
     const grass = new THREE.Mesh(
       new THREE.PlaneGeometry(600, WORLD.length),
       new THREE.MeshLambertMaterial({ color: 0x3e7d3a })
@@ -136,7 +117,7 @@ export class World {
   }
 
   buildBarriers() {
-    // Vizuális korlát + fizikai test a pálya két szélén, a teljes úthosszon.
+    // Vizuális korlát a pálya két szélén (a fizikát a sim-mag korlátjai adják).
     for (const side of [-1, 1]) {
       const barrier = new THREE.Mesh(
         new THREE.BoxGeometry(0.28, 0.85, WORLD.length),
@@ -144,14 +125,6 @@ export class World {
       );
       barrier.position.set(side * BARRIER_X, GROUND_Y + 0.43, W_CENTER);
       this.staticGroup.add(barrier);
-
-      const body = new CANNON.Body({
-        type: CANNON.Body.STATIC,
-        shape: new CANNON.Box(new CANNON.Vec3(0.14, 2, WORLD.length / 2)),
-        position: new CANNON.Vec3(side * BARRIER_X, 0, W_CENTER),
-      });
-      this.world.addBody(body);
-      this.staticBodies.push(body);
     }
   }
 
@@ -226,9 +199,6 @@ export class World {
   }
 
   // Nagy narancs-sárga kapu, amely átível a teljes autópálya fölött.
-  // Külön a scene-ben (nem a staticGroup-ban), mert minden képkockában a
-  // játékos elé igazítjuk: `player.z + (gateDist − gateAcc)`.  Így a kapu a
-  // tekercseléskör is folyamatosan „elől” marad.
   buildGate() {
     this.gate = new THREE.Group();
     const amber = new THREE.MeshLambertMaterial({ color: 0xffa31a });
@@ -306,12 +276,5 @@ export class World {
       const d = distance || 0;
       this.roadTex.offset.y = (-d / this.tileLen) % 1;
     }
-  }
-
-  // Visszatekerés: minden statikus testet és látványt `delta`-val tolunk −Z felé.
-  // (a játékost és a forgalmat a main/traffic ugyanekkora delta-val tolja)
-  wrap(delta) {
-    this.staticGroup.position.z -= delta;
-    for (const b of this.staticBodies) b.position.z -= delta;
   }
 }

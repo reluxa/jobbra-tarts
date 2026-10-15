@@ -1,7 +1,6 @@
-// A játékos autó, boltozatos (arcade) hajtással, de a cannon-es fizikavilág
-// kontaktrendszerével: az ütközést továbbra is a cannon oldja meg (események,
-// kitolás, kinematikus akadályok), mi csak az erőhatást adjuk a kasztninak
-// (gyorsulás/fék/kormányzás), így a játékérzés determinisztikus és hangolható.
+// A játékos autó LÁTVÁNYA: a logikát a sim-mag (src/sim/engine.js) adja, ez a
+// nézet építi fel a kocsit (külső váz, műszerfal, kormány), tartja a kamerákat
+// (vezetőülés + visszapillantó-tükör) és szinkronizálja a látványt a sim-állapotból.
 //
 // Látvány-rétegek:
 //   layer 0 — világ (út, forgalom, korlát, felhők)
@@ -10,16 +9,11 @@
 //   layer 2 — a saját autó BELSEJE (műszerfal, kormány, belső tükör...)
 // A kamera rétegeit a main.js forgatja aszerint, hogy belső vagy külső nézet kell.
 import * as THREE from 'three';
-import * as CANNON from 'cannon-es';
-import { BARRIER_X, CAMERA, CAR, DRIVE, LANE_W, SIGNAL, laneCenterX } from './constants.js';
-
-const MATH_ = Math;
-const clamp = (v, a, b) => MATH_.max(a, MATH_.min(b, v));
+import { CAMERA, CAR } from './constants.js';
 
 export class Player {
-  constructor(scene, world) {
+  constructor(scene) {
     this.scene = scene;
-    this.world = world;
 
     this.group = new THREE.Group();
     scene.add(this.group);
@@ -33,37 +27,15 @@ export class Player {
     this.group.add(this.extGroup, this.intGroup);
 
     this.buildVisual();   // dobozos vészlátvány (model null, de elég)
-    this.buildPhysics();
     // a Three.js rétegeket NEM örökli az objektumfák: az összes gyereket
     // külön-külön le kell állítani a megfelelő rétegre
     setGroupLayer(this.extGroup, 1);
     setGroupLayer(this.intGroup, 2);
 
-    this.steer = 0;        // akt. befordítás (-1..1), vizuális
-    this.laneChange = null; // {from,to,t} — futó automatikus sávváltás
-    this.speed = 0;        // hosszirányú sebesség (m/s, előre pozitív)
-    this.fwdSpeed = 0;     // alias a HUD/pass-logika felé
-    this.invincible = 0;
-    this.cruise = DRIVE.cruise; // aktuális utazósebesség (a nehézséggel nő)
-    // radar-tempomat: ha elöl a sávban lassabb jármű van, erre (a küszöb szerint)
-    // korlátozzuk a célsebességet, és utána is lassítsunk — vissza a betett rájazón.
-    this.radarTarget = 600;  // elfoglult nélküli érték (m/s — gyakrol lím nélküli)
-    this.radarOn = false;
-    this.radarGap = Infinity; // legutóbbi mért követési távolság
-
-    // indexelés (KRESZ-értéke a pontozásnál)
-    this.signal = 0;       // -1 balra / 0 ki / +1 jobbra
-    this.signalT = 0;      // a jelzés óta eltelt idő
-    this.blinkPhase = 0;
-
-    this.quatTmp = new THREE.Quaternion();
-    this.qCannon = new CANNON.Quaternion();
-    this.fwd = new THREE.Vector3(0, 0, 1);
-    this.speedVec = new CANNON.Vec3();
-
     this.camPos = new THREE.Vector3(0, CAMERA.height, 10);
     this.camLook = new THREE.Vector3(0, 0, 0);
     this.v3 = new THREE.Vector3();
+    this.fwd = new THREE.Vector3(0, 0, 1);
   }
 
   // ---------- alépítmények ----------
@@ -420,92 +392,46 @@ export class Player {
     setGroupLayer(wrapper, 1);
   }
 
-  buildPhysics() {
-    this.chassis = new CANNON.Body({
-      mass: CAR.mass,
-      shape: new CANNON.Box(new CANNON.Vec3(CAR.half.x, CAR.half.y, CAR.half.z)),
-      position: new CANNON.Vec3(laneCenterX(2), CAR.restY, 0),
-    });
-    this.chassis.linearDamping = 0;
-    this.chassis.angularDamping = 0;
-    this.world.addBody(this.chassis);
-  }
+  // ---------- vizuális szinkron a sim-állapotból (nincs játéklogika) ----------
 
-  get pos() { return this.chassis.position; }
-
-  laneIndex() {
-    const lane = 1 - this.pos.x / LANE_W;
-    return Math.max(0, Math.min(2, Math.round(lane)));
-  }
-
+  // A jármű haladási iránya (a csoport yaw-jából), kamera/tükör célzásához.
   forwardWorld(out = this.fwd) {
-    out.set(0, 0, 1).applyQuaternion(this.quatTmp.set(
-      this.chassis.quaternion.x, this.chassis.quaternion.y,
-      this.chassis.quaternion.z, this.chassis.quaternion.w
-    ));
+    const y = this.group.rotation.y;
+    out.set(Math.sin(y), 0, Math.cos(y));
     return out;
   }
-  yaw() { return Math.atan2(this.forwardWorld().x, this.forwardWorld().z); }
 
-  rotateY(rad) {
-    const y = this.yaw() + rad;
-    this.qCannon.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), y);
-    this.chassis.quaternion.copy(this.qCannon);
-    this.chassis.angularVelocity.setZero();
-  }
+  syncFrom(sim, dt) {
+    this.group.position.set(sim.x, sim.y, sim.z);
+    this.group.rotation.set(0, sim.yaw, 0);
 
-  // abszolút yaw beállítása (radio nélküli, sima) — a sávváltásnál használjuk,
-  // hogy kiegyenesítéskor mindig tiszta 0°-ra álljunk (nem adogat a jelenlegihez).
-  setYawAbs(rad) {
-    this.qCannon.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), rad);
-    this.chassis.quaternion.copy(this.qCannon);
-    this.chassis.angularVelocity.setZero();
-  }
-
-  hardAlignYaw() {
-    this.rotateY(0);
-    this.chassis.velocity.set(0, 0, 0);
-    this.speed = 0;
-  }
-
-  // ---------- sávváltás (a játék végzi) ----------
-  // Egy gombnyomás = EGY sávváltás a kért irányba, amit a játék automatikusan
-  // elvégez (átgurul az új sáv közepére és kiegyenesedik). Lekérő irány: -1 balra, +1 jobbra.
-  requestLaneChange(dir) {
-    if (this.laneChange) {
-      console.log(`[sávváltás] NINCS VÁLTÁS: még folyamatban van az előző (maradék: ${this.laneChange.t.toFixed(2)}s, irány: ${dir})`);
-      return;
+    const spin = (sim.fwdSpeed / CAR.wheelRadius) * dt;
+    for (const w of this.wheelMeshes) {
+      w.spin -= spin;
+      w.tyre.rotation.x = w.spin;
+      if (w.steer) w.holder.rotation.y = -sim.steer * 0.55;
     }
-    const from = this.laneIndex();
-    const to = clamp(Math.round(from + dir), 0, 2);
-    if (to === from) return;                  // a szélen nem tudunk odébb menni
-    this.laneChange = { from, to, t: 0 };
+    // a kormány a befordítási irányba fordul a sávváltáskor, majd visszaáll
+    if (this.steerWheel) {
+      const target = sim.steer * 0.85;
+      const k = 1 - Math.exp(-dt * 10);
+      this.steerWheel.rotation.z += (target - this.steerWheel.rotation.z) * k;
+    }
+    this.updateSignalViz(sim, dt);
   }
 
-  // ---------- index (KRESZ-irányjelző) ----------
-  toggleSignal(dir) {
-    this.signal = this.signal === dir ? 0 : dir;
-    this.signalT = 0;
-  }
-  signalOn(dir) { return this.signal === dir && this.blinkPhase < 0.5; }
-  signalAct() { return this.signal !== 0; }
-
-  updateSignalViz(dt) {
-    const sig = this.signal;
-    // kikapcsolt állapotban minden jelző leoltva, az indexemelő visszaáll
+  // Index-lámpák, műszerfali nyilak és az indexemelő a sim-signal szerint.
+  updateSignalViz(sim, dt) {
+    const sig = sim.signal;
+    const blinkOn = sim.signalOn();
     if (!sig) {
-      this.signalT = 0;
       for (const m of this.sigLights) m.material.emissiveIntensity = 0.05;
       if (this.sigDash) { this.sigDash[0].material.emissiveIntensity = 0.02; this.sigDash[1].material.emissiveIntensity = 0.02; }
       if (this.sigStalk) this.sigStalk.rotation.x = 0;
       return;
     }
-    this.signalT += dt;
-    this.blinkPhase = (this.blinkPhase + dt * SIGNAL.blinkHz) % 1;
-    if (this.signalT >= SIGNAL.autoOff) this.signal = 0;
-
-    const on = this.blinkPhase < 0.5 ? 2.2 : 0.05;
-    const leftW = this.signal === -1;
+    const on = blinkOn ? 2.2 : 0.05;
+    const leftW = sig === -1;
     // külső lámpák: csak az aktív oldal (bal = -X, jobb = +X)
     for (const [i, m] of this.sigLights.entries()) {
       const isLeftSide = i < 2;
@@ -513,116 +439,14 @@ export class Player {
     }
     // műszerfali index-nyilak (0. index = bal nyíl)
     if (this.sigDash) {
-      this.sigDash[0].material.emissiveIntensity = (this.signal === -1) ? on : 0.02;
-      this.sigDash[1].material.emissiveIntensity = (this.signal === 1) ? on : 0.02;
+      this.sigDash[0].material.emissiveIntensity = (sig === -1) ? on : 0.02;
+      this.sigDash[1].material.emissiveIntensity = (sig === 1) ? on : 0.02;
     }
     // indexemelő: balra = le, jobbra = fel (a karon)
     if (this.sigStalk) {
-      const target = this.signal === -1 ? -0.45 : 0.45;
+      const target = sig === -1 ? -0.45 : 0.45;
       const k = 1 - Math.exp(-dt * 16);
       this.sigStalk.rotation.x += (target - this.sigStalk.rotation.x) * k;
-    }
-  }
-
-  // Sávváltás-fókuszú léptetés: a gáz/fék/kormányzás helyett a játék
-  // automatikusan halad (utazósebességre törekszik), és a bal/jobb gomb egy
-  // automatikus sávváltást indít. A játékosnak csak a sávváltás pillanatával
-  // kell törődnie (és az irányjelzéssel).
-  // Radar-tempomat bemenete: a következő kapu előtti jármű (elöl, azonos sávban).
-  // gap = távolság (m), speed = annak a járműnek a sebessége (m/s).  Hiszterézis,
-  // hogy ne oszcilláljon: csak közeli jármű kapcsol be, és csak hosszú távolságnál
-  // old ki, ha már továbbhagytunk.
-  setRadar(gap, speed) {
-    const ENGAGE = 22, RELEASE = 42;
-    this.radarGap = gap;
-    if (gap === Infinity || gap > RELEASE) {
-      this.radarOn = false;
-      this.radarTarget = 600;
-    } else if (gap < ENGAGE || this.radarOn) {
-      this.radarOn = true;
-      this.radarTarget = Math.max(1, speed);   // kövesd a lassabb jármű tempóját
-    }
-  }
-
-  step(dt) {
-    // --- automata sebesség: utazósebességre törekszünk, baleset után lassabban,
-    //     és nem megyünk bele a radar-tempomat által mért lassabb járműbe sem ---
-    const maxV = CAR.maxSpeed;
-    const cruiseTarget = this.invincible > 0 ? this.cruise * 0.55 : this.cruise;
-    const target = Math.min(cruiseTarget, this.radarTarget);
-    let v = this.speed;
-    const acc = DRIVE.accel * (1 - v / maxV);
-    if (v < target) v = Math.min(target, v + acc * dt);
-    else v = Math.max(target, v - DRIVE.brake * dt);
-    v -= v * v * DRIVE.drag * dt;
-    v = clamp(v, 0, maxV);
-    this.speed = v;
-
-    // --- automatikus sávváltás ---
-    if (this.laneChange) {
-      const lc = this.laneChange;
-      lc.t += dt;
-      const k = Math.min(1, lc.t / DRIVE.laneChange);
-      const e = k * k * (3 - 2 * k);               // smoothstep: lágy ki/be
-      const fromX = laneCenterX(lc.from);
-      const toX = laneCenterX(lc.to);
-      this.chassis.position.x = fromX + (toX - fromX) * e;
-      // enyhe kormánybehúzás a váltás irányába, majd kiegyenesedés (érzet/vizuál)
-      const s = lc.from < lc.to ? -1 : 1;          // jobbra → -1, balra → +1
-      this.steer = s;
-      this.setYawAbs(s * 0.3 * Math.sin(Math.PI * k));
-      if (k >= 1) {
-        this.chassis.position.x = toX;
-        this.setYawAbs(0);
-        this.steer = 0;
-        this.laneChange = null;
-      }
-    } else {
-      this.steer = 0;
-    }
-
-    // haladás előre (+Z). Sávváltáskor a laterális mozgást az x-cél adja,
-    // ezért itt tiszta előre-sebességet viszünk a testbe.
-    this.speedVec.set(0, 0, v);
-    this.chassis.velocity.copy(this.speedVec);
-    this.chassis.angularVelocity.setZero();
-    this.chassis.force.setZero();
-    this.chassis.torque.setZero();
-
-    const restY = CAR.restY;
-    this.chassis.position.y += (restY - this.chassis.position.y) * Math.min(1, 10 * dt);
-    if (Math.abs(this.chassis.position.y - restY) < 0.003) this.chassis.position.y = restY;
-
-    const limitX = BARRIER_X - 1.6;
-    if (Math.abs(this.chassis.position.x) > limitX) {
-      this.chassis.position.x = Math.sign(this.chassis.position.x) * limitX;
-      this.speed *= 0.85;
-    }
-
-    // kormánykerék-forgatás (látvány) a syncVisual-ban, target-lerp-pel
-
-    this.fwdSpeed = v;
-    this.syncVisual(dt);
-    this.updateSignalViz(dt);
-  }
-
-  syncVisual(dt) {
-    this.group.position.copy(this.pos);
-    this.group.quaternion.set(
-      this.chassis.quaternion.x, this.chassis.quaternion.y,
-      this.chassis.quaternion.z, this.chassis.quaternion.w
-    );
-    const spin = (this.fwdSpeed / CAR.wheelRadius) * dt;
-    for (const w of this.wheelMeshes) {
-      w.spin -= spin;
-      w.tyre.rotation.x = w.spin;
-      if (w.steer) w.holder.rotation.y = -this.steer * 0.55;
-    }
-    // a kormány a befordítási irányba fordul a sávváltáskor, majd visszaáll
-    if (this.steerWheel) {
-      const target = this.steer * 0.85;
-      const k = 1 - Math.exp(-dt * 10);
-      this.steerWheel.rotation.z += (target - this.steerWheel.rotation.z) * k;
     }
   }
 
@@ -639,7 +463,7 @@ export class Player {
       // FONTOS: a pozíció NEM lerpelt (hard-glue) — a lerp sebesség-arányos
       // lemaradást okoz (117 km/h-nál ~4 m), azaz gyorsuláskor a kamera
       // „kicsúszna” az ülésből. Csak a TEKINTET simított (finom, nem okoz dudorodást).
-      this.v3.set(o.x, o.y, o.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw());
+      this.v3.set(o.x, o.y, o.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.group.rotation.y);
       const desired = this.v3.set(p.x + this.v3.x, o.y, p.z + this.v3.z);
       camera.position.copy(desired);
       const look = this.v3.set(p.x + fwd.x * o.lookAhead, o.lookY, p.z + fwd.z * o.lookAhead);
@@ -674,40 +498,16 @@ export class Player {
     cam.lookAt(cx - fwd.x * m.lookBack, m.lookY, cz - fwd.z * m.lookBack);
   }
 
-  respawnAtLane(lane) {
-    this.chassis.position.set(laneCenterX(lane), CAR.restY, this.pos.z);
-    this.chassis.quaternion.set(0, 0, 0, 1);
-    this.chassis.velocity.setZero();
-    this.chassis.angularVelocity.setZero();
-    this.steer = 0;
-    this.laneChange = null;
-    this.speed = 0;
-    this.fwdSpeed = 0;
-    this.signal = 0;
-    this.signalT = 0;
-    this.group.position.copy(this.chassis.position);
-    this.group.quaternion.identity();
-  }
-
-  slowDown(amount) { this.speed = Math.max(0, this.speed - amount); }
-  nudgeYaw(rad) { this.rotateY(rad); }
-
-  wheelDbg() {
+  // fejlesztési segéd: a kerék-látvány állapota
+  wheelDbg(sim) {
+    const steer = sim ? sim.steer : 0;
     return this.wheelMeshes.map((w, i) => ({
       y: +w.holder.position.y.toFixed(2),
-      steer: w.steer ? +this.steer.toFixed(2) : 0,
+      steer: w.steer ? +steer.toFixed(2) : 0,
       spin: +w.spin.toFixed(2),
       idx: i,
     }));
   }
-
-  // Világ-visszatekeréshez: a játékos testét delta-val toljuk −Z felé (a nézet
-  // azért marad azonos, mert a világ+forgalom ugyanezzel a delta-val megy).
-  wrapZ(delta) {
-    this.chassis.position.z -= delta;
-  }
-
-  free() { this.world.removeBody(this.chassis); }
 }
 
 function extGroupLayer(g, layer) {

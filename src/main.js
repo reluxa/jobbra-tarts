@@ -1,17 +1,19 @@
-// Fő játékvezérlő: render-loop, fizikai rögzített lépés, állapotgép, ütközés-kezelés.
+// Fő játékvezérlő: NÉZET a sim-mag (src/sim/engine.js) fölé. A játékmenet
+// logikája (sebesség, sávváltás, radar, forgalom, pontozás, ütközés, wrap)
+// a magban van — ez a fájl a render-loopot, a kamerákat, a HUD-ot, a
+// hangokat/effekteket és az állapotgépet tartja, az eseményekből építve.
 import * as THREE from 'three';
-import * as CANNON from 'cannon-es';
-import { CAMERA, CAR, DRIVE, PHYS_FIXED, SCORE, SIGNAL, TRAFFIC, WORLD } from './constants.js';
-import { laneCenterX } from './constants.js';
+import { CAMERA, PHYS_FIXED, SCORE, SIGNAL, TRAFFIC, laneCenterX } from './constants.js';
 import { World } from './world.js';
 import { Player } from './player.js';
-import { Traffic } from './traffic.js';
+import { TrafficView } from './traffic.js';
 import { Effects } from './effects.js';
-import { Scoring } from './scoring.js';
 import { HUD } from './hud.js';
 import { Input } from './input.js';
 import { AudioFX } from './audio.js';
 import { loadCarModels } from './models.js';
+import { SimEngine } from './sim/engine.js';
+import { makeRng } from './sim/prng.js';
 
 const TIPS = [
   'A jobb szélső sáv a haladási sávod — ott lassabban fogy a kapu-időd, ezért CSAK jobbra tartva lehet nyerni.',
@@ -29,33 +31,23 @@ const TIP_DELAY = 4.5;
 
 const $ = (id) => document.getElementById(id);
 
-function makePhysics() {
-  // Nincs gravitáció: a jármű sebességét mi vezéreljük, a cannon csak a
-  // kontakteseményeket és a kitolást végzi (kinematikus forgalom, korlát).
-  const world = new CANNON.World({ gravity: new CANNON.Vec3(0, 0, 0) });
-  world.allowSleep = false;
-  world.solver.iterations = 10;
-  world.defaultContactMaterial.friction = 0.4;
-  return world;
-}
-
 export class Game {
   constructor() {
+    this.gid = (window.__gameCount = (window.__gameCount || 0) + 1);
     this.state = 'start';
-    this.lives = 3;
-    this.dist = 0;
     this.acc = 0;
-    this.gasA = 0;
-    this.brakeA = 0;
     this.tipT = 1.0;
     this.tipIdx = 0;
-    this.crashCount = 0;
     this.prevLane = 2;
     this.timeoutDone = false;
     this.prevBlinkOn = false;
     this.playerHasModel = false;
 
-    this.worldPhys = makePhysics();
+    // EGYETLEN játéklogika — a tesztelés (scripts/sim-*) is ezt futtatja
+    this.engine = new SimEngine();
+    this.engine.onEvent = (ev) => this.handleSimEvent(ev);
+    this.scoring = this.engine.scoring;
+
     this.initRenderer();
     this.initModules();
     this.initEvents();
@@ -65,37 +57,25 @@ export class Game {
     window.__start = () => this.start();
     window.__testCrash = () => this.testCrash();
     window.__forceSection = () => this.scoring.advance(SCORE.gateDist); // teszt: egy kapu ugrás
+    window.__seed = (n) => { this.engine.rng = makeRng(n); this.engine.seed = n; };
     window.__jumpLane = (lane, edge = 0) => {
       if (this.state !== 'play') return;
-      // determinisztikus teszt: a teleport helyéről kitakarítjuk a forgalmat,
-      // különben egy kinematikus autó löki a dinamikus játékost (flakiség).
-      const pz = this.player.pos.z;
-      for (let i = this.traffic.cars.length - 1; i >= 0; i--) {
-        const c = this.traffic.cars[i];
-        if (Math.abs(c.body.position.z - pz) < 25) {
-          this.worldPhys.removeBody(c.body);
-          this.scene.remove(c.meshes);
-          this.traffic.byId.delete(c.body.id);
-          this.traffic.cars.splice(i, 1);
-        }
-      }
-      this.player.respawnAtLane(lane);
-      if (edge) this.player.chassis.position.x = laneCenterX(lane) + edge;
-      this.player.speed = 14;   // indulósebesség: a teszt ne a gyorsítástól függjön
-      this.player.fwdSpeed = 14;
+      const p = this.engine.player;
+      const pz = p.z;
+      // determinisztikus teszt: a teleport helyéről kitakarítjuk a forgalmat
+      this.engine.cars = this.engine.cars.filter((c) => Math.abs(c.z - pz) >= 25);
+      p.x = laneCenterX(lane) + edge;
+      p.z = pz;
+      p.yaw = 0;
+      p.laneChange = null;
+      p.signal = 0;
+      p.speed = 14;   // indulósebesség: a teszt ne a gyorsítástól függjön
+      p.fwdSpeed = 14;
       this.prevLane = lane;
-    };
-    window.__rayTest = (fromX, fromY, toY) => {
-      const w = this.worldPhys;
-      const from = new CANNON.Vec3(fromX, fromY, 0);
-      const to = new CANNON.Vec3(fromX, toY, 0);
-      const res = new CANNON.RaycastResult();
-      const hit = w.rayTest(from, to, res);
-      return { hit, hasHit: res.hasHit, dist: res.hasHit ? +res.distance.toFixed(3) : null, body: res.hasHit ? res.body ? res.body.type : 'null' : 'none', gx: res.hasHit ? res.hitPointWorld.x : null, gy: res.hasHit ? +res.hitPointWorld.y.toFixed(3) : null };
     };
     window.__ready = true;
     window.__game = this; // fejlesztői hozzáférís a belső állapothoz
-    window.__THREE = THREE; // fejlesztői hozzáférís a három.js-hez a próbákhoz
+    window.__THREE = THREE;
 
     this.startLoop();
   }
@@ -127,10 +107,9 @@ export class Game {
   }
 
   initModules() {
-    this.world = new World(this.scene, this.worldPhys);
-    this.player = new Player(this.scene, this.worldPhys);
-    this.traffic = new Traffic(this.scene, this.worldPhys);
-    this.scoring = new Scoring();
+    this.world = new World(this.scene);
+    this.player = new Player(this.scene);
+    this.traffic = new TrafficView(this.scene);
     this.hud = new HUD();
     this.input = new Input();
     this.audio = new AudioFX();
@@ -138,45 +117,8 @@ export class Game {
     this.shakeTmp = new THREE.Vector3();
 
     this.player.setMirrorTexture(this.mirrorRT.texture);
-    this.input.onSignal = (d) => { if (this.state === 'play') this.player.toggleSignal(d); };
-    this.input.onLane = (d) => {
-      if (this.state !== 'play') {
-        console.log(`[sávváltás] NINCS VÁLTÁS: a játék nem "play" állapotban van (állapot: ${this.state})`);
-        return;
-      }
-      const from = this.player.laneIndex();
-      const to = Math.max(0, Math.min(2, from + d));
-      if (to === from) {
-        console.log(`[sávváltás] NINCS VÁLTÁS: már a szélső sávban vagy (irány: ${d}, sáv: ${from}, x: ${this.player.pos.x.toFixed(2)})`);
-        return;
-      }
-      if (!this.traffic.canChangeTo(to, this.player.pos.z)) {
-        // a cél-sáv foglalt — ne guruljunk bele: ne váltsunk, és jelezzük
-        const pz = this.player.pos.z;
-        const cx = laneCenterX(to);
-        let nearest = null;
-        const blockers = this.traffic.cars
-          .filter((c) => !c.ghost &&
-            (c.body.position.z - pz) > -TRAFFIC.changeBehind && (c.body.position.z - pz) < TRAFFIC.changeAhead &&
-            Math.abs(c.body.position.x - cx) < 2.3)
-          .map((c, i) => {
-            const dz = c.body.position.z - pz;                  // + előtt / − mögött
-            const dx = c.body.position.x - cx;                  // oldalirány a cél-sáv közepétől
-            const dist = Math.hypot(dz, dx);                    // valós (egyenes) távolság
-            const gap = dz - CAR.half.z - c.len / 2;            // orr→hátsó lökhárító hézag
-            if (!nearest || Math.abs(dz) < Math.abs(nearest.dz)) nearest = { dz, dist };
-            return `#${i + 1} lane=${c.lane}${c.changeLane != null ? '→' + c.changeLane : ''} seb=${c.speed.toFixed(2)}m/s ⇒ TÁV=${dist.toFixed(2)}m (δz=${dz.toFixed(2)}m ${dz < 0 ? 'MÖGÖTTED' : 'ELŐLED'}, δx(cél-sáv közepe)=${dx.toFixed(2)}m${dz > 0 ? `, orr−farok hézag=${gap.toFixed(2)}m` : ''})`;
-          })
-          .join(' | ');
-        const sum = nearest
-          ? ` Legközelebbi blokkoló: ${nearest.dist.toFixed(2)} m (δz=${nearest.dz.toFixed(2)} m)` : '';
-        console.log(`[sávváltás] NINCS VÁLTÁS: a cél-sáv foglalt (irány: ${d}, játékos sáv: ${from}, x=${this.player.pos.x.toFixed(2)}, cél-sáv: ${to}) — blokkoló: ${blockers || '?'}${sum}`);
-        this.warnLane();
-        return;
-      }
-      console.log(`[sávváltás] VÁLTÁS indítva: balra/jobbra (irány: ${d}) ${from} → ${to}, x=${this.player.pos.x.toFixed(2)}`);
-      this.player.requestLaneChange(d);
-    };
+    this.input.onSignal = (d) => { if (this.state === 'play') this.engine.player.toggleSignal(d); };
+    this.input.onLane = (d) => this.onLaneInput(d);
 
     // glTF-modellek (bármikor véletlen: a dobozos vészlátvány is elég)
     loadCarModels().then((models) => {
@@ -195,6 +137,101 @@ export class Game {
     this.hud.updateLives(3);
     this.hud.updateGate(0, 0);
     this.setupCockpitOverlay();
+  }
+
+  // A sim-mag eseményeiből hang/effekt/HUD — a JÁTÉKLOGIKA a magban van.
+  handleSimEvent(ev) {
+    const p3 = () => new THREE.Vector3(ev.car ? ev.car.x : this.engine.player.x, 0.6, ev.car ? ev.car.z : this.engine.player.z);
+    switch (ev.kind) {
+      case 'overtake':
+        this.audio.overtake();
+        this.effects.popup(ev.text, ev.color, p3());
+        break;
+      case 'passed':
+        this.effects.popup(ev.text, ev.color, p3());
+        break;
+      case 'penalty':
+        this.audio.penalty();
+        this.effects.popup(ev.text, ev.color, p3());
+        if (!ev.selfDidIt) this.pushTip('Jobbról előztek — húzódj jobbra!');
+        break;
+      case 'gate':
+        this.audio.bonus();
+        this.effects.popup(`+${ev.bonus} KAPU ✓ (${ev.gates}.)`, '#ffd54a', p3());
+        break;
+      case 'laneChange':
+        // az index-bónusz / index-nélküli-büntetés a scoring-ban elvégezve
+        if (ev.led) {
+          this.audio.bonus();
+          this.effects.popup(`+${SIGNAL.points} INDEX ✓`, '#ffd54a', p3());
+        } else {
+          this.audio.penalty();
+          this.effects.popup(`−${SIGNAL.noSignalPenalty} Index nélkül váltasz sávot!`, '#ff8a80', p3());
+        }
+        break;
+      case 'crash': {
+        this.audio.crash();
+        this.effects.shake(1.3, 0.65);
+        this.hud.flash();
+        this.hud.updateLives(this.engine.lives);
+        const mid = new THREE.Vector3(this.engine.player.x, 0.6, (this.engine.player.z + ev.car.z) / 2);
+        this.effects.burst(mid, 30, 0xff7043);
+        this.effects.popup('-150 BALESET', '#ff8a80', mid);
+        if (this.engine.lives <= 0) this.gameOver();
+        break;
+      }
+      case 'wrap':
+        console.log(`[wrap] δ=${ev.delta} pz=${ev.pz.toFixed(1)} cars=${ev.cars} rel-eltérés=${ev.distInvariant.toFixed(4)}`);
+        break;
+      case 'timeout':
+        this.gameOver({ title: 'KIFUTOTTÁL A KAPU-IDŐBŐL', sub: 'Nem értél a következő kapuhoz időre.' });
+        break;
+      case 'gameOver':
+        break; // a crash eseménynél már kezeljük
+    }
+  }
+
+  onLaneInput(d) {
+    if (this.state !== 'play') {
+      console.log(`[sávváltás] NINCS VÁLTÁS: a játék nem "play" állapotban van (állapot: ${this.state})`);
+      return;
+    }
+    const p = this.engine.player;
+    const from = p.laneIndex();
+    const to = Math.max(0, Math.min(2, from + d));
+    const res = this.engine.playerChangeLane(d);
+    if (res === 'ok') {
+      console.log(`[sávváltás] VÁLTÁS indítva: (irány: ${d}) ${from} → ${to}, x=${p.x.toFixed(2)}`);
+      return;
+    }
+    if (res === 'busy') {
+      console.log(`[sávváltás] NINCS VÁLTÁS: még folyamatban van az előző (irány: ${d})`);
+      return;
+    }
+    if (res === 'edge') {
+      console.log(`[sávváltás] NINCS VÁLTÁS: már a szélső sávban vagy (irány: ${d}, sáv: ${from}, x: ${p.x.toFixed(2)})`);
+      return;
+    }
+    // res === 'blocked': a cél-sáv foglalt — ne guruljunk bele, jelezzük
+    const cx = laneCenterX(to);
+    let nearest = null;
+    const blockers = this.engine.cars
+      .filter((c) => !c.ghost &&
+        (c.z - p.z) > -TRAFFIC.changeBehind && (c.z - p.z) < TRAFFIC.changeAhead &&
+        Math.abs(c.x - cx) < 2.3)
+      .map((c, i) => {
+        const dz = c.z - p.z;                  // + előtt / − mögött
+        const dx = c.x - cx;                   // oldalirány a cél-sáv közepétől
+        const dist = Math.hypot(dz, dx);       // valós (egyenes) távolság
+        const gap = dz - 2.05 - c.len / 2;     // orr→hátsó lökhárító hézag
+        if (!nearest || Math.abs(dz) < Math.abs(nearest.dz)) nearest = { dz, dist };
+        return `#${i + 1} lane=${c.lane}${c.changeLane != null ? '→' + c.changeLane : ''} seb=${c.speed.toFixed(2)}m/s ⇒ TÁV=${dist.toFixed(2)}m (δz=${dz.toFixed(2)}m ${dz < 0 ? 'MÖGÖTTED' : 'ELŐLED'}, δx(cél-sáv közepe)=${dx.toFixed(2)}m${dz > 0 ? `, orr−farok hézag=${gap.toFixed(2)}m` : ''})`;
+      })
+      .join(' | ');
+    const sum = nearest
+      ? ` Legközelebbi blokkoló: ${nearest.dist.toFixed(2)} m (δz=${nearest.dz.toFixed(2)} m)` : '';
+    console.log(`[sávváltás] NINCS VÁLTÁS: a cél-sáv foglalt (irány: ${d}, játékos sáv: ${from}, x=${p.x.toFixed(2)}, cél-sáv: ${to}) — blokkoló: ${blockers || '?'}${sum}`);
+    this.warnLane();
   }
 
   // 2D „belső tér” overlay (réteg 3): a cockpit-fotó a vásznon.  A szélvédőt
@@ -230,27 +267,13 @@ export class Game {
     img.onload = () => {
       try {
         const cv = document.createElement('canvas');
-        cv.width = img.width; cv.height = img.height;
+        const W = img.naturalWidth, H = img.naturalHeight;
+        cv.width = W; cv.height = H;
         const ctx = cv.getContext('2d');
         ctx.drawImage(img, 0, 0);
-        const idata = ctx.getImageData(0, 0, cv.width, cv.height);
-        const d = idata.data, W = cv.width, H = cv.height;
-        for (let y = 0; y < H; y++) {
-          for (let x = 0; x < W; x++) {
-            const i = (y * W + x) * 4;
-            const lum = (d[i] + d[i + 1] + d[i + 2]) / 3;
-            if (y < H * 0.54) {
-              // felső zóna: a világos (a világ felé mutató) rész = szélvédő → átlátszó
-              d[i + 3] = Math.round(THREE.MathUtils.clamp((125 - lum) / 50, 0, 1) * 255);
-            } else {
-              d[i + 3] = 255; // alsó: műszerfal — fedi a világot
-            }
-          }
-        }
-
-        // A fotó belső tükre a jobb felső sötét blokk: megkeressük, és az
-        // ÜVEGRÉSZÉT átlátszóvá lyukasztjuk (a keret marad), oda rajzoljuk az
-        // élő visszapillantó-képet.
+        // a tükör (a fotó bal-job felső fele) helyének megkeresése és kimaszkolása
+        const idata = ctx.getImageData(0, 0, W, H);
+        const d = idata.data;
         let mx0 = W, mx1 = 0, my0 = H, my1 = 0;
         for (let y = 0; y < H * 0.3; y++) {
           for (let x = W * 0.5; x < W; x++) {
@@ -292,23 +315,6 @@ export class Game {
   }
 
   initEvents() {
-    this.worldPhys.addEventListener('beginContact', (e) => this.onContact(e));
-
-    this.traffic.onOvertake = () => {
-      this.scoring.overtake();
-      this.audio.overtake();
-    };
-    this.traffic.onPenalty = (car, selfDidIt) => {
-      this.scoring.penalty(selfDidIt); // csak a játékos bevágása apasztja az időt
-      this.audio.penalty();
-      if (!selfDidIt) this.pushTip('Jobbról előztek — húzódj jobbra!');
-    };
-    this.traffic.onPopup3D = (text, color, pos) => this.effects.popup(text, color, pos);
-    this.scoring.onGate = (bonus, gates) => {
-      this.audio.bonus();
-      this.effects.popup(`+${bonus} KAPU ✓ (${gates}.)`, '#ffd54a', this.player.pos);
-    };
-
     this.input.onAnyKey = () => this.audio.ensure();
     $('startBtn').addEventListener('click', () => { this.audio.ensure(); this.start(); });
     $('restartBtn').addEventListener('click', () => { this.audio.ensure(); this.start(); });
@@ -328,29 +334,17 @@ export class Game {
         if (this.state === 'over') this.start();
         else if (this.state === 'play') this.restart();
       }
-      if (k === 'k' && this.state === 'play') this.testCrash();
     });
   }
 
   start() {
-    this.lives = 3;
-    this.dist = 0;
-    this.gasA = this.brakeA = 0;
-    this.crashCount = 0;
-    this.timeoutDone = false;
-    this.scoring.init();
-    this.player.invincible = 0;
+    this.engine.reset();
+    this.engine.seedStartTraffic();
     this.traffic.clear();
-    // azonnali forgalom: az első másodpercekben is legyen mit kerülgetni
-    // azonnali forgalom: az első másodpercekben is legyen mit kerülgetni
-    // (a közeli szemecek a bal/középső sávba kerülnek, a játékos sávja tiszta)
-    this.traffic.spawn(this.player.pos.z, 0, 25, 1);
-    this.traffic.spawn(this.player.pos.z, 0, 55, 0);
-    this.traffic.spawn(this.player.pos.z, 0, 90, 1);
-    this.traffic.spawn(this.player.pos.z, 0, 140, 2);
-    this.traffic.spawnBehind(this.player); // gyors előlkanyarodó a tükörbe
-    this.player.respawnAtLane(2);
+    this.player.syncFrom(this.engine.player, 0);
     this.prevLane = 2;
+    this.timeoutDone = false;
+    this.prevBlinkOn = false;
     this.tipT = 1.0;
     this.tipIdx = 0;
     this.setState('play');
@@ -376,6 +370,7 @@ export class Game {
   }
 
   gameOver(reason) {
+    if (this.state === 'over') return;
     this.hud.showBestIfNew(this.scoring.score);
     $('overTitle').textContent = (reason && reason.title) || 'BALESET VÉGE';
     $('overSub').textContent = (reason && reason.sub) || 'Kifogytál az életekből';
@@ -389,65 +384,22 @@ export class Game {
     this.setState('over');
   }
 
-  onContact(e) {
-    if (this.state !== 'play') return;
-    const p = this.player.chassis;
-    let other = null;
-    if (e.bodyA.id === p.id) other = e.bodyB;
-    else if (e.bodyB.id === p.id) other = e.bodyA;
-    else return;
-
-    const entry = this.traffic.byId.get(other.id);
-    if (!entry) return;
-
-    const approach = Math.max(0, this.player.fwdSpeed - entry.speed);
-    if (approach < 6) return; // enyhe súrlódás nem baleset
-
-    this.crashWith(entry, approach);
-  }
-
-  crashWith(entry, approach) {
-    if (this.player.invincible > 0 || this.state !== 'play') return;
-    this.lives--;
-    this.crashCount++;
-    this.scoring.crash();
-    this.hud.updateLives(this.lives);
-    this.audio.crash();
-    this.effects.shake(1.3, 0.65);
-    this.hud.flash();
-
-    const p = this.player;
-    p.slowDown(approach * 0.85);       // ütközés-lelassulás
-    p.nudgeYaw((Math.random() - 0.5) * 0.9); // hirtelen kormány-ütés
-
-    const mid = new THREE.Vector3()
-      .addVectors(p.group.position, new THREE.Vector3(entry.body.position.x, entry.body.position.y, entry.body.position.z))
-      .multiplyScalar(0.5);
-    this.effects.burst(mid, 30, 0xff7043);
-    this.effects.popup('-150 BALESET', '#ff8a80', mid);
-
-    p.invincible = 2.5;
-    if (this.lives <= 0) this.gameOver();
-  }
-
   // Teszt-segéd: tiszta állapotba rakja az autót, majd bokszot állít elé.
   testCrash() {
     if (this.state !== 'play') return;
-    const p = this.player;
-    p.respawnAtLane(1);
-    p.speed = 18;
-    p.chassis.position.z += 3;
+    const p = this.engine.player;
+    p.x = laneCenterX(1);
+    p.yaw = 0;
+    p.laneChange = null;
+    p.signal = 0;
+    p.speed = 36;   // utazósebesség-közeli: a radar-tempomat nem tud megállítani időben
+    p.fwdSpeed = 36;
+    p.z += 3;
     // determinisztikus ütközés: takarítsuk ki a sávot (a radar különben egy
     // NPC mögött megállna, és sosem érnénk a teszt-bokszhoz)
-    for (let i = this.traffic.cars.length - 1; i >= 0; i--) {
-      const c = this.traffic.cars[i];
-      if (c.ghost) continue;
-      if (c.lane === p.laneIndex() && c.body.position.z < p.pos.z + 250) {
-        this.traffic.removeObstacle(c);
-      }
-    }
-    const entry = this.traffic.addObstacle(p.fwdSpeed - 10, p.pos.z + 12, p.laneIndex());
-    setTimeout(() => this.traffic.removeObstacle(entry), 1800);
+    this.engine.cars = this.engine.cars.filter((c) => !(c.lane === 1 && c.z < p.z + 250));
+    const entry = this.engine.addObstacle(p.fwdSpeed - 10, p.z + 12, 1);
+    setTimeout(() => this.engine.removeObstacle(entry), 1800);
   }
 
   pushTip(text) {
@@ -482,117 +434,43 @@ export class Game {
   }
 
   fixed(t) {
-    // Sávváltás-fókusz: nincs kézi gáz/fék/kormányzás. A játék automatikusan
-    // halad (utazósebesség) és elvégzi a kért sávváltásokat. A balra/jobbra
-    // gomb az onLane-kiváltás útján indítja a váltást a Playerben.
-    this.player.step(t);
-    // a kerekes jármű ütközési/erő egyenleteit a világ-léptetés oldja meg
-    this.worldPhys.step(t);
-    // a világ-léptetés a kasztnit tovább mozgathatta (testeintegráló + kontaktok),
-    // ezért a vizuálist a LÉPÉS UTÁN szinkronizáljuk — így a csoport (és a ráépülő
-    // kokpit-kamera) sosem marad le egy lépésnyit sem a testről. dt=0: a kerekek
-    // forgása ne duplázódjon (azt a step() már megtette).
-    this.player.syncVisual(0);
-    if (this.player.invincible > 0) this.player.invincible -= t;
+    // EGYETLEN lépés a logikára; a nézet mindent a mag-állapotból vesz
+    this.engine.tick(PHYS_FIXED);
 
-    const fwd = Math.max(0, this.player.fwdSpeed);
-    this.dist += fwd * t;
-    const difficulty = Math.min(1, this.dist / 2400);
-    // a játék nehézsége nő: gyorsul a haladás + sűrűsödik a forgalom
-    this.player.cruise = DRIVE.cruise + (DRIVE.cruiseMax - DRIVE.cruise) * difficulty;
-
-    this.traffic.update(t, this.player, difficulty);
-    // kapu-alapú pontozás: sáv-bónusz/levonás + kapu-idő epedése + kapu-ugrás
-    const lane = this.player.laneIndex();
-    this.scoring.update(t, lane);
-    this.scoring.advance(fwd * t);
-    // a kapu-látvány a következő kapu-pont fölött áll (a játékos elé)
-    this.world.positionGate(this.player.pos.z + (SCORE.gateDist - this.scoring.gateAcc));
-    // ha lejárt a kapu-idő a következő kapu előtt — vége
-    if (this.scoring.timedOut && !this.timeoutDone) {
-      this.timeoutDone = true;
-      this.gameOver({ title: 'KIFUTOTTÁL A KAPU-IDŐBŐL', sub: 'Nem értél a következő kapuhoz időre.' });
-      return;
-    }
-
-    // ---- sávváltás + indexelés (KRESZ) ----
-    // radar-tempomat: az azonos sávban elöl haladó jármű tempója (lassú előtt lassulunk)
-    const ahead = this.traffic.aheadInLane(lane, this.player.pos.z);
-    this.player.setRadar(ahead ? ahead.gap : Infinity, ahead ? ahead.speed : 600);
-
-    if (lane !== this.prevLane) {
-      const dir = Math.sign(lane - this.prevLane);
-      const p = this.player;
-      // akkor jár a bónusz, ha UGYANEBBA az irányba aktiváltuk az indexet
-      // legalább minLead-tel korábban (és az még él)
-      const led = p.signal === dir && p.signalT >= SIGNAL.minLead && p.signalT <= SIGNAL.autoOff;
-      this.scoring.signalChange(led);
-      if (led) {
-        this.audio.bonus();
-        this.effects.popup(`+${SIGNAL.points} INDEX ✓`, '#ffd54a', p.pos);
-        p.signal = 0; // a váltás után lekapcsoljuk a villogót
-      } else {
-        this.audio.penalty();
-        this.effects.popup(`−${SIGNAL.noSignalPenalty} Index nélkül váltasz sávot!`, '#ff8a80', p.pos);
-      }
-    }
-    this.prevLane = lane;
+    // látvány-szinkron
+    this.player.syncFrom(this.engine.player, t);
+    this.traffic.sync(this.engine.cars);
+    this.world.update(this.engine.dist);
+    this.world.positionGate(this.engine.player.z + (SCORE.gateDist - this.engine.scoring.gateAcc));
 
     // irányjelző kattanás a villogási fázisra
-    const blinkOn = this.player.signalAct() && this.player.blinkPhase < 0.5;
+    const blinkOn = this.engine.player.signalOn();
     if (blinkOn && !this.prevBlinkOn) this.audio.blink();
     this.prevBlinkOn = blinkOn;
-    this.hud.updateSignal(this.player.signal);
+    this.hud.updateSignal(this.engine.player.signal);
 
     this.effects.tickShake(t);
     this.effects.updateParticles(t);
-    this.world.update(this.dist);
-    // világ-„végtelenítés": a világ STATIKUS [start,end]; ha a játékos a far
-    // felé ér, őt a wrapTo-ba teleportáljuk vissza (a világ nem tolódik, így
-    // előtte mindig teljes út van — ez újrafinalizál); a forgalmat ugyanazzal
-    // a delta-val visszatekerjük, így az autók a helyükön maradnak körülöttünk.
-    if (this.player.pos.z > WORLD.wrapAt) {
-      const snapZ = this.player.pos.z - WORLD.wrapTo;
-      const delta = Math.round(snapZ / WORLD.tile) * WORLD.tile;
-      this.player.wrapZ(delta);
-      this.traffic.wrap(delta);
-      // AZONNALI vizuális szinkron: a wrap a fixed() végén, a syncVisual után
-      // fut, ezért a csoport (és a ráépülő kamera) e nélkül 1 képkockával
-      // később érné utol a testet — az utolsó fráme-ben a forgalom már
-      // visszatekergett, a saját kocsink még a régi helyén „resetelődne".
-      this.player.syncVisual(0);
-      console.log(`[wrap] delta=${delta} pz=${this.player.pos.z.toFixed(1)} cars=${this.traffic.cars.length}`);
-    }
     // árnyékkamera kövesse a játékost (különben az árnyék a startnál reked)
-    this.world.shadowTarget.position.copy(this.player.pos);
+    this.world.shadowTarget.position.set(this.engine.player.x, 0, this.engine.player.z);
     this.world.shadowTarget.updateMatrixWorld();
     this.tutorial(t);
-    this.audio.setEngine(Math.min(1, fwd / 40));
 
-    const kmh = fwd * 3.6;
+    const kmh = Math.abs(this.engine.player.fwdSpeed) * 3.6;
     this.hud.updateScore(this.scoring.score);
-    this.hud.updateSpeed(Math.abs(this.player.fwdSpeed) * 3.6);
+    this.hud.updateSpeed(kmh);
     this.hud.updateEnergy(this.scoring.energyFrac() * 100, this.scoring.gateFrac());
-    this.hud.updateGate(this.scoring.gates, difficulty, this.scoring.reqAvg());
+    this.hud.updateGate(this.scoring.gates, this.engine.difficulty(), this.scoring.reqAvg());
   }
 
   debug() {
-    return {
-      state: this.state, lives: this.lives, cars: this.traffic.cars.length,
-      score: Math.round(this.scoring.score), gates: this.scoring.gates,
-      gateT: +this.scoring.gateT.toFixed(1),
-      kmh: Math.round(Math.abs(this.player.fwdSpeed) * 3.6),
-      pos: [+this.player.pos.x.toFixed(2), +this.player.pos.y.toFixed(2), +this.player.pos.z.toFixed(2)],
-      yaw: +(this.player.yaw() * 180 / Math.PI).toFixed(1),
-      vel: [+this.player.chassis.velocity.x.toFixed(2), +this.player.chassis.velocity.y.toFixed(2), +this.player.chassis.velocity.z.toFixed(2)],
-      av: [+this.player.chassis.angularVelocity.y.toFixed(2)],
-      wheels: this.player.wheelDbg(),
-      dist: Math.round(this.dist), crashCount: this.crashCount,
-      sig: this.player.signal,
-      lane: this.player.laneIndex(),
-      radar: this.player.radarOn ? +this.player.radarGap.toFixed(1) : 0,
-      sigOK: this.scoring.parts.signalsOK,
-      sigNo: this.scoring.parts.noSignalCount,
+    const e = this.engine.debug();
+    return { gid: this.gid, gc: window.__gameCount,
+      state: this.state,
+      ...e,
+      vel: [0, 0, 0],
+      av: [0],
+      wheels: this.player.wheelDbg(this.engine.player),
       model: this.playerHasModel,
     };
   }
