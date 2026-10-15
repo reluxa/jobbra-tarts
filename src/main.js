@@ -51,6 +51,7 @@ export class Game {
     this.initRenderer();
     this.initModules();
     this.initEvents();
+    this.renderVersion();
 
     // teszt-/fejlesztői belépési pontok
     window.__dbg = () => this.debug();
@@ -312,6 +313,22 @@ export class Game {
       }
     };
     img.src = 'cockpit.png';
+  }
+
+  // Kezdőképernyő verziójel: v<utolsó commit rövid hash> · <a commit ideje>.
+  // Az adatot a vite.config.mjs (__BUILD_INFO__) injektálja a gitből.
+  renderVersion() {
+    const el = $('verBox');
+    if (!el) return;
+    const { short, stamp } = (typeof __BUILD_INFO__ !== 'undefined' && __BUILD_INFO__) || {};
+    if (!short) {
+      el.textContent = 'fejlesztői build (nincs commit-adat)';
+      return;
+    }
+    let t;
+    try { t = new Date(stamp).toLocaleString('hu-HU', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+    catch { t = ''; }
+    el.textContent = t ? `v${short} · utolsó commit: ${t}` : `v${short}`;
   }
 
   initEvents() {
