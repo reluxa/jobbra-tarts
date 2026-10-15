@@ -556,6 +556,12 @@ export class Game {
       const delta = Math.round(snapZ / WORLD.tile) * WORLD.tile;
       this.player.wrapZ(delta);
       this.traffic.wrap(delta);
+      // AZONNALI vizuális szinkron: a wrap a fixed() végén, a syncVisual után
+      // fut, ezért a csoport (és a ráépülő kamera) e nélkül 1 képkockával
+      // később érné utol a testet — az utolsó fráme-ben a forgalom már
+      // visszatekergett, a saját kocsink még a régi helyén „resetelődne".
+      this.player.syncVisual(0);
+      console.log(`[wrap] delta=${delta} pz=${this.player.pos.z.toFixed(1)} cars=${this.traffic.cars.length}`);
     }
     // árnyékkamera kövesse a játékost (különben az árnyék a startnál reked)
     this.world.shadowTarget.position.copy(this.player.pos);
