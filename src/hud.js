@@ -19,7 +19,7 @@ export const timeTone = (pct) => (pct <= 25 ? 'crit' : pct <= 50 ? 'warn' : 'ok'
 export class HUD {
   constructor() {
     this.el = {
-      score: $('score'), best: $('best'), mult: $('mult'), streak: $('streak'),
+      score: $('score'), best: $('best'), streak: $('streak'),
       ecoFill: $('ecoFill'), ecoVal: $('ecoVal'),
       secFill: $('secFill'), speed: $('speed'), hint: $('hintBox'),
       flash: $('flash'),
@@ -60,8 +60,7 @@ export class HUD {
     }
   }
 
-  updateGate(gates, difficulty, req) {
-    this.el.mult.textContent = 'KAPU ' + (gates + 1);
+  updateGate(difficulty, req) {
     this.el.streak.textContent =
       'kell ≈ ' + (req || 0).toFixed(1) + ' km/h · ' + Math.round(difficulty * 100) + '%';
   }
