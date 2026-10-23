@@ -3,9 +3,6 @@ const $ = (id) => document.getElementById(id);
 
 // ---- Tiszta formázó-segédek (tesztelhetők) ----
 
-// Szívek: n meglévő + (3−n) üres. Negatív/nagy n is biztonságos (nem dob a repeat).
-export const formatLives = (n) => '❤'.repeat(Math.max(0, n)) + '🖤'.repeat(Math.max(0, 3 - Math.max(0, n)));
-
 // Az időbar színe a százalékból: zöld (120°H) → piros (6°), soha nem 0-ra.
 export const batteryHue = (pct) => Math.max(6, (pct / 100) * 120);
 
@@ -23,7 +20,7 @@ export class HUD {
   constructor() {
     this.el = {
       score: $('score'), best: $('best'), mult: $('mult'), streak: $('streak'),
-      lives: $('lives'), ecoFill: $('ecoFill'), ecoVal: $('ecoVal'),
+      ecoFill: $('ecoFill'), ecoVal: $('ecoVal'),
       secFill: $('secFill'), speed: $('speed'), hint: $('hintBox'),
       flash: $('flash'),
       sigL: $('sigL'), sigR: $('sigR'),
@@ -67,10 +64,6 @@ export class HUD {
     this.el.mult.textContent = 'KAPU ' + (gates + 1);
     this.el.streak.textContent =
       'kell ≈ ' + (req || 0).toFixed(1) + ' km/h · ' + Math.round(difficulty * 100) + '%';
-  }
-
-  updateLives(n) {
-    this.el.lives.textContent = formatLives(n);
   }
 
   // indexjelző nyilak (0 = ki, -1 = balra, +1 = jobbra)

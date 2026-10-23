@@ -136,7 +136,6 @@ export class Game {
     this.hud.updateScore(0);
     this.hud.updateSpeed(0);
     this.hud.updateEnergy(100, 0);
-    this.hud.updateLives(3);
     this.hud.updateGate(0, 0);
     this.setupCockpitOverlay();
   }
@@ -180,7 +179,6 @@ export class Game {
         this.audio.crash();
         this.effects.shake(1.3, 0.65);
         this.hud.flash();
-        this.hud.updateLives(this.engine.lives);
         const mid = new THREE.Vector3(this.engine.player.x, 0.6, (this.engine.player.z + ev.car.z) / 2);
         this.effects.burst(mid, 30, 0xff7043);
         this.effects.popup('-150 BALESET', '#ff8a80', mid);
@@ -402,7 +400,6 @@ export class Game {
     this.tipT = 1.0;
     this.tipIdx = 0;
     this.setState('play');
-    this.hud.updateLives(3);
     this.hud.updateScore(0);
     this.hud.updateEnergy(100, 0, this.scoring.gateT);
     this.hud.updateGate(0, 0);

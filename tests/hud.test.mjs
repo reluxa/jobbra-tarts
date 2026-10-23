@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { installDomStubs } from './helpers/dom-stubs.js';
-import { HUD, formatLives, batteryHue, formatTimeMinus } from '../src/hud.js';
+import { HUD, batteryHue, formatTimeMinus } from '../src/hud.js';
 
 const { document, localStorage, makeEl } = installDomStubs();
 
 function mkHud() {
-  const ids = ['score', 'best', 'mult', 'streak', 'lives', 'ecoFill', 'ecoVal',
+  const ids = ['score', 'best', 'mult', 'streak', 'ecoFill', 'ecoVal',
     'ecoBox', 'gateT', 'gateSub', 'secFill', 'speed', 'hintBox', 'flash', 'sigL', 'sigR',
     'timeMinus'];
   const el = {};
@@ -16,14 +16,6 @@ function mkHud() {
 }
 
 // ---- tiszta formázó-segédek ----
-test('formatLives: szívek, hiányzó életek üresek', () => {
-  assert.equal(formatLives(3), '❤'.repeat(3));
-  assert.equal(formatLives(2), '❤'.repeat(2) + '🖤');
-  assert.equal(formatLives(0), '🖤'.repeat(3));
-  assert.equal(formatLives(5), '❤'.repeat(5) + '🖤'.repeat(0), '5 fölé nem negatív üres');
-  assert.equal(formatLives(-1), '🖤'.repeat(3));
-});
-
 test('batteryHue: 100% → zöld, 0% → piros, monoton csökken', () => {
   assert.equal(batteryHue(100), 120);
   assert.equal(batteryHue(0), 6);
@@ -59,8 +51,6 @@ test('HUD: elemmegjelenítések', () => {
   h.updateGate(3, 0.75, 74.5);
   assert.equal(h.el.mult.textContent, 'KAPU 4');
   assert.ok(h.el.streak.textContent.includes('74.5'));
-  h.updateLives(1);
-  assert.equal(h.el.lives.textContent, '❤🖤🖤');
 });
 
 test('HUD: updateEnergy a százalékot és a színárnyalatot állítja', () => {
