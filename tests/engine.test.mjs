@@ -157,6 +157,23 @@ test('drainRate: sávonkénti alap-ütem (1.8 / 1.35 / 1.0), határon kívül bi
   assert.equal(e.drainRate(9), laneRateByLane[2], 'felül clampol');
 });
 
+test('drainRate: foglalt jobbra lévő sáv → 1,0× (beragadt kivétel), jobb sávban nincs kivétel', () => {
+  const e = fresh();
+  e.cars = [];
+  assert.equal(e.drainRate(1), laneRateByLane[1], 'szabad jobb sáv: közép = 1,35×');
+
+  e.addObstacle(0, 3, 2); // a jobb sávban, 3 m-el előttünk → foglalt
+  assert.equal(e.drainRate(1), laneRateByLane[2], 'foglalt jobbra → 1,0× (nem büntet)');
+  assert.equal(e.drainRate(0), laneRateByLane[0], 'belsőben: a SZABAD középső dönt → 1,8× marad');
+
+  e.cars[0].z = -60; // a blokkolási ablakon kívül → a jobb sáv szabadnak számít
+  assert.equal(e.drainRate(1), laneRateByLane[1]);
+
+  e.player.x = laneCenterX(2); // jobb sávban maga az ütem 1,0× — kivétel se kell
+  e.cars[0].z = 3;
+  assert.equal(e.drainRate(2), laneRateByLane[2]);
+});
+
 test('playerChangeLane: ok/edge/busy/blocked eredmények', () => {
   const e = fresh();
   assert.equal(e.playerChangeLane(-1), 'ok');

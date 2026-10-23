@@ -436,10 +436,15 @@ export class SimEngine {
 
   // ---- kapu / wrap ----
   // Az effektív kapu-óra fogyási ütem az adott sávban (alap: laneRateByLane).
-  // A scoring ÉS a HUD jelvénye ugyanezt használja — ide kerül majd a 4. tétel
-  // „beragadt" kivétel-e (fogalt jobb sáv → nincs gyorsabb fogyás).
+  // Kivétel: ha a tőlünk jobbra lévő sáv FOGLALT (nem tudnánk jobbra húzódni),
+  // az óra a jobb-oldali (1,0×) ütemben fogy — a sávon belül maradás akkor se
+  // büntet, ha nem a te hibád (4. tétel).
   drainRate(lane) {
-    return laneRateByLane[Math.max(0, Math.min(laneRateByLane.length - 1, lane))];
+    const clamped = Math.max(0, Math.min(laneRateByLane.length - 1, lane));
+    if (clamped < 2 && !this.canChangeTo(clamped + 1, this.player.z)) {
+      return laneRateByLane[2];
+    }
+    return laneRateByLane[clamped];
   }
 
   scoringStep(dt) {
