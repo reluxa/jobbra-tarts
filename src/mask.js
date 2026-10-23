@@ -117,6 +117,29 @@ export function carveTransparent(d, W, H, seeds, opt = {}) {
       if (darkN >= 3 && ((darkL && darkR) || (darkU && darkD))) d[p * 4 + 3] = 255;
     }
   }
+
+  // A sötét szerkezetek (A-oszlop, tető, ablakkeret) VILÁGOS fénycsíkjait a
+  // flood is kimarhatja: az oszlop élén foga-szabálytalan, átlátszó sáv fut
+  // végig, amin átlátszik a 3D világ. A sötét magból kifelé 3 rétegnyi
+  // szegély-pixelt visszaállítunk (a megmaradt, fedő szegélyen át nincs
+  // távolabb terjedés), így a keretek fedettek maradnak.
+  const isDarkCore = (i) => Math.max(d[i], d[i + 1], d[i + 2]) < darkB - 20;
+  const restored = new Uint8Array(W * H);
+  for (let pass = 0; pass < 3; pass++) {
+    let changed = false;
+    for (let y = 1; y < cleanH - 1; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        const p = y * W + x;
+        if (d[p * 4 + 3] !== 0) continue;
+        const nearDark = pass === 0
+          ? isDarkCore((p - 1) * 4) || isDarkCore((p + 1) * 4) ||
+            isDarkCore((p - W) * 4) || isDarkCore((p + W) * 4)
+          : restored[p - 1] || restored[p + 1] || restored[p - W] || restored[p + W];
+        if (nearDark) { d[p * 4 + 3] = 255; restored[p] = 1; changed = true; }
+      }
+    }
+    if (!changed) break;
+  }
   return carved;
 }
 
