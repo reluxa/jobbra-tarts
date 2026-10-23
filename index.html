@@ -45,6 +45,13 @@
     #ecoBox { top: 18%; right: 16px; width: 252px; padding: 8px 14px 10px; }
     #ecoBox .lbl { margin-bottom: 2px; display: flex; justify-content: space-between; align-items: baseline; }
     #ecoVal { font-size: 14px; font-weight: 700; opacity: 0.95; font-variant-numeric: tabular-nums; }
+    /* sáv-fogyási jelvény: ×1,8 (belső) / ×1,35 (közép) / ×1 (jobb) */
+    #ecoBox .lbl { white-space: nowrap; }
+    #ecoBox .hdr { display: inline-flex; gap: 6px; align-items: baseline; }
+    #laneRate { font-size: 12px; font-weight: 800; padding: 1px 7px; border-radius: 8px; background: rgba(255, 255, 255, 0.12); }
+    #laneRate.bad { background: rgba(229, 57, 53, 0.28); color: #ff8a80; }
+    #laneRate.mid { background: rgba(255, 179, 0, 0.22); color: #ffb300; }
+    #laneRate.ok { background: rgba(67, 160, 71, 0.28); color: #7dffa0; }
     #gateT { font-size: 46px; font-weight: 900; line-height: 1.05; font-variant-numeric: tabular-nums; }
     #gateT .unit { font-size: 20px; font-weight: 700; opacity: 0.7; margin-left: 4px; }
     #gateT .unit small { font-size: 13px; letter-spacing: 1px; }
@@ -115,6 +122,10 @@
       #ecoBox { top: 22%; right: 10px; width: 196px; padding: 6px 10px 8px; }
       #gateT { font-size: 34px; }
       #timeMinus { font-size: 15px; top: 22px; right: 8px; }
+      #ecoBox .lbl { font-size: 11px; letter-spacing: 1.5px; }
+      #ecoBox .hdr { gap: 4px; }
+      #laneRate { font-size: 11px; padding: 1px 5px; }
+      #ecoVal { font-size: 12px; }
       #speed { font-size: 48px; }
       #sigBox { bottom: 88px; }
       #hintBox { font-size: 14px; padding: 8px 14px; }
@@ -216,7 +227,10 @@
       <div id="streak"></div>
     </div>
     <div class="hudbox panel" id="ecoBox">
-      <div class="lbl"><span>KAPU-IDŐ</span><span id="ecoVal">100%</span></div>
+      <div class="lbl">
+        <span>KAPU-IDŐ</span>
+        <span class="hdr"><span id="laneRate">×1</span><span id="ecoVal">100%</span></span>
+      </div>
       <div id="gateT">–<span class="unit">s</span></div>
       <div id="ecoBar"><div id="ecoFill"></div></div>
       <div id="secBar"><div id="secFill"></div></div>

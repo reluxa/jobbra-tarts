@@ -7,7 +7,7 @@
 // popupokat, hangokat és HUD-t épít, a napló pedig az ellenőrzés alapja.
 import {
   BARRIER_X, CAR, DRIVE, SCORE, SIGNAL, TRAFFIC, WORLD,
-  laneCenterX,
+  laneCenterX, laneRateByLane,
 } from '../constants.js';
 import { Scoring } from '../scoring.js';
 import { makeRng } from './prng.js';
@@ -435,9 +435,17 @@ export class SimEngine {
   }
 
   // ---- kapu / wrap ----
+  // Az effektív kapu-óra fogyási ütem az adott sávban (alap: laneRateByLane).
+  // A scoring ÉS a HUD jelvénye ugyanezt használja — ide kerül majd a 4. tétel
+  // „beragadt" kivétel-e (fogalt jobb sáv → nincs gyorsabb fogyás).
+  drainRate(lane) {
+    return laneRateByLane[Math.max(0, Math.min(laneRateByLane.length - 1, lane))];
+  }
+
   scoringStep(dt) {
     const p = this.player;
-    this.scoring.update(dt, p.laneIndex());
+    const lane = p.laneIndex();
+    this.scoring.update(dt, lane, this.drainRate(lane));
     const fwd = Math.max(0, p.fwdSpeed);
     const gatesBefore = this.scoring.gates;
     this.scoring.advance(fwd * dt);

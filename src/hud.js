@@ -12,6 +12,9 @@ export const formatGateSecs = (s) => Math.max(0, Math.round(s)).toString();
 // Az időbüntetés felirata a KAPU-IDŐ panelre: „−N s", sosem negatív.
 export const formatTimeMinus = (s) => '−' + Math.max(0, Math.round(s)) + ' s';
 
+// A sáv-fogyási ütem jelvénye: „×1,8" (magyar tizedesvessző, felesleges 0 nélkül).
+export const formatLaneRate = (r) => '×' + String(Math.round(r * 100) / 100).replace('.', ',');
+
 // A kapu-idő „hangulata” a százalékból: bőven van / figyelmeztet / kritikus.
 // A kijelző emiatt kap hangulat-osztályt (ecoBox.warn / ecoBox.crit).
 export const timeTone = (pct) => (pct <= 25 ? 'crit' : pct <= 50 ? 'warn' : 'ok');
@@ -25,9 +28,10 @@ export class HUD {
       flash: $('flash'),
       sigL: $('sigL'), sigR: $('sigR'),
       ecoBox: $('ecoBox'), gateT: $('gateT'), gateSub: $('gateSub'),
-      timeMinus: $('timeMinus'),
+      timeMinus: $('timeMinus'), laneRate: $('laneRate'),
     };
     this.sigTimer = 0;
+    this.lastLaneRate = null;
     this.best = 0;
     try {
       this.best = parseInt(localStorage.getItem('jobbra_tartas_best') || '0', 10) || 0;
@@ -64,6 +68,20 @@ export class HUD {
     this.el.mult.textContent = 'KAPU ' + (gates + 1);
     this.el.streak.textContent =
       'kell ≈ ' + (req || 0).toFixed(1) + ' km/h · ' + Math.round(difficulty * 100) + '%';
+  }
+
+  // Sáv-fogyási jelvény (az effektív ütem): piros ×1,8 / narancs ×1,35 / zöld ×1.
+  // Csak változáskor ír (frame-enként hívva).
+  updateLaneRate(rate) {
+    if (rate === this.lastLaneRate) return;
+    this.lastLaneRate = rate;
+    const el = this.el.laneRate;
+    if (!el) return;
+    el.textContent = formatLaneRate(rate);
+    const tone = rate > 1.5 ? 'bad' : rate > 1.05 ? 'mid' : 'ok';
+    el.classList.toggle('bad', tone === 'bad');
+    el.classList.toggle('mid', tone === 'mid');
+    el.classList.toggle('ok', tone === 'ok');
   }
 
   // indexjelző nyilak (0 = ki, -1 = balra, +1 = jobbra)

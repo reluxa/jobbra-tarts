@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { installDomStubs } from './helpers/dom-stubs.js';
-import { HUD, batteryHue, formatTimeMinus } from '../src/hud.js';
+import { HUD, batteryHue, formatTimeMinus, formatLaneRate } from '../src/hud.js';
 
 const { document, localStorage, makeEl } = installDomStubs();
 
 function mkHud() {
   const ids = ['score', 'best', 'mult', 'streak', 'ecoFill', 'ecoVal',
     'ecoBox', 'gateT', 'gateSub', 'secFill', 'speed', 'hintBox', 'flash', 'sigL', 'sigR',
-    'timeMinus'];
+    'timeMinus', 'laneRate'];
   const el = {};
   for (const id of ids) el[id] = makeEl();
   document.register(el);
@@ -105,6 +105,44 @@ test('formatTimeMinus: −N s, kerekítve, sosem negatív', () => {
   assert.equal(formatTimeMinus(4.6), '−5 s');
   assert.equal(formatTimeMinus(0), '−0 s');
   assert.equal(formatTimeMinus(-3), '−0 s');
+});
+
+test('formatLaneRate: ×1,8 / ×1,35 / ×1 (magyar tizedesvessző, felesleges 0 nélkül)', () => {
+  assert.equal(formatLaneRate(1.8), '×1,8');
+  assert.equal(formatLaneRate(1.35), '×1,35');
+  assert.equal(formatLaneRate(1), '×1');
+  assert.equal(formatLaneRate(1.034), '×1,03');
+});
+
+test('HUD: updateLaneRate — jelvény szövege + hangulat-osztály, csak változáskor ír', () => {
+  const h = mkHud();
+  const rec = (el) => {
+    const classes = new Set();
+    el.classList = {
+      add: (c) => classes.add(c),
+      remove: (c) => classes.delete(c),
+      toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)),
+    };
+    el._classes = classes;
+  };
+  rec(h.el.laneRate);
+
+  h.updateLaneRate(1.8);
+  assert.equal(h.el.laneRate.textContent, '×1,8');
+  assert.ok(h.el.laneRate._classes.has('bad'));
+  assert.ok(!h.el.laneRate._classes.has('ok'));
+
+  h.updateLaneRate(1.35); // változás: narancs
+  assert.equal(h.el.laneRate.textContent, '×1,35');
+  assert.ok(h.el.laneRate._classes.has('mid'));
+  assert.ok(!h.el.laneRate._classes.has('bad'), 'a régi osztály lekerül');
+
+  h.updateLaneRate(1.35); // ugyanaz: nincs újraírás (korai visszatérés)
+  assert.equal(h.el.laneRate.textContent, '×1,35');
+
+  h.updateLaneRate(1); // jobb sáv: zöld
+  assert.equal(h.el.laneRate.textContent, '×1');
+  assert.ok(h.el.laneRate._classes.has('ok'));
 });
 
 test('HUD: timeHit — chip felirat + a hit/numhit/show osztályok felkerülnek', () => {

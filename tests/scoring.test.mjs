@@ -34,6 +34,13 @@ test('update: sáv-függő pont és óra-fogyás', () => {
   assert.ok(s2.gateT < s.gateT, 'belső sáv gyorsabban apaszt');
 });
 
+test('update: explicit rate felülírja a sáv-alapot (a beragadt-kivételhez), a pont marad sávszerint', () => {
+  const s = new Scoring();
+  s.update(10, 1, laneRateByLane[2]); // középső sávban, de óra 1,0×-szal fogy
+  assert.ok(Math.abs(s.gateT - (s.gateAvail - 10)) < 1e-9);
+  assert.equal(s.score, 0, 'közép sáv pont-flavor: 0');
+});
+
 test('update: lejárt idő csak egyszer jelölődik, gateT 0-ra klampolt az első átforduláskor', () => {
   const s = new Scoring();
   s.gateT = 0.5;

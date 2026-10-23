@@ -33,14 +33,15 @@ export class Scoring {
 
   // Kötelező per-lépés hívás.
   // lane (0=belső/balkanyar, 1=közép, 2=külső/jobb) — megadja a fogyási ütemet.
-  update(dt, lane) {
+  // rate: az engine effektív üteme (drainRate); elhagyva a sávonkénti alap él.
+  update(dt, lane, rate = laneRateByLane[lane]) {
     // pont-flavor: maradj jobbra (külső sáv: +; belső: −) — a HUD pontszáma
     const pts = SCORE.lanePerSec[lane] * dt;
     this.score += pts;
     if (pts > 0) this.parts.right += pts;
 
-    // KAPU-ÓRA sáv-függő fogyása (a lényeg: jobbra maradva fogy a leglassabban)
-    this.gateT -= laneRateByLane[lane] * dt;
+    // KAPU-ÓRA fogyása az effektív ütemmel (a lényeg: jobbra maradva fogy a leglassabban)
+    this.gateT -= rate * dt;
     if (this.gateT <= 0 && !this.timedOut) {
       this.gateT = 0;
       this.timedOut = true;

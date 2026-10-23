@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SimEngine } from '../src/sim/engine.js';
-import { CAR, DRIVE, SCORE, SIGNAL, TRAFFIC, WORLD, BARRIER_X, laneCenterX } from '../src/constants.js';
+import { CAR, DRIVE, SCORE, SIGNAL, TRAFFIC, WORLD, BARRIER_X, laneCenterX, laneRateByLane } from '../src/constants.js';
 
 const fresh = () => new SimEngine({ seed: 42 });
 
@@ -146,6 +146,15 @@ test('canChangeTo: foglalt sáv az [−changeBehind, +changeAhead] ablakban, x-t
   e.cars[0].x = laneCenterX(2); // a cél-sáv középpontjától > 2.3 m-re — nem számít
   e.cars[0].z = 5;
   assert.equal(e.canChangeTo(1, 0), true);
+});
+
+test('drainRate: sávonkénti alap-ütem (1.8 / 1.35 / 1.0), határon kívül biztonságos', () => {
+  const e = fresh();
+  assert.equal(e.drainRate(0), laneRateByLane[0]);
+  assert.equal(e.drainRate(1), laneRateByLane[1]);
+  assert.equal(e.drainRate(2), laneRateByLane[2]);
+  assert.equal(e.drainRate(-3), laneRateByLane[0], 'alul clampol');
+  assert.equal(e.drainRate(9), laneRateByLane[2], 'felül clampol');
 });
 
 test('playerChangeLane: ok/edge/busy/blocked eredmények', () => {
