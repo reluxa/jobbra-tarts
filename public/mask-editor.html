@@ -78,7 +78,7 @@
 
   <div class="group">
     <span>Nézet:</span>
-    <button id="pvFinal" class="btn on" title="fotó + algoritmikus maszk + rajzod (1)">végeredmény</button>
+    <button id="pvFinal" class="btn on" title="fotó + rajzod — így néz ki a játékban (1)">végeredmény</button>
     <button id="pvBase" class="btn" title="eredeti fotó + rajzod (2)">fotó</button>
     <button id="pvMask" class="btn" title="csak a vonások (3)">csak rajz</button>
   </div>
@@ -440,7 +440,8 @@ function render() {
   vctx.fillStyle = checker;
   vctx.fillRect(0, 0, IMG_W, IMG_H);
 
-  const src = preview === 'final' ? maskedCanvas : photoCanvas;
+  // mask-only: ha van kézi rajz, AZ a maszk — a "végeredmény" = fotó + rajzod
+  const src = photoCanvas;
   vctx.drawImage(src, 0, 0);
 
   if (preview !== 'mask') {
@@ -493,7 +494,7 @@ function loadImageElement(img) {
   fit();
   render();
   updateStatus();
-  setStatusNote(`algoritmikus maszk: ${carved.toLocaleString('hu-HU')} px`);
+  setStatusNote(`algoritmikus maszk: ${carved.toLocaleString('hu-HU')} px (csak tartalék — ha van kézi rajz, a játék azt használja)`);
 }
 
 function loadImageSrc(src) {

@@ -328,34 +328,64 @@ export class Game {
           }
         }
 
-        // A fotó szélvédőjén át a 3D világnak kell látszania, de a fotóban a
-        // "táj" egy stúdiófal — és a fal alsó részét a softbox fénye-árnyéka
-        // sávokra vágja. Először a fő falat szívjuk ki (alacsonyabb
-        // fényküszöbbel, hogy a sötétebb sávokon is átjárjon), majd célzott
-        // magokkal (carvePockets) a maszk alatt maradt zsebeket is
-        // (a zsebeket sötét sávok zárják — a kormányt, műszerfalat nem éri).
-        // A wallCeiling oszloponként megmondja, hol végződik a fal: a 
-        // világos-szürke műszerfal-teteje a fényküszöbökön átesne, de a 
-        // maszk alá — a beltér fölé — így nem érhet.
-        const ceil = wallCeiling(d, W, H);
-        const carved = carveTransparent(
-          d, W, H,
-          [
-            [W * 0.45, H * 0.2], [W * 0.2, H * 0.24], [W * 0.75, H * 0.2],
-            [W * 0.95, H * 0.2], [W * 0.04, H * 0.35], // az utolsó: bal oldali ablak
-          ],
-          { minBright: 95, maxSat: 60, yMax: ceil }
-        );
-        const carved2 = carvePockets(
-          d, W, H,
-          [
-            [W * 0.45, H * 0.53], [W * 0.35, H * 0.55], [W * 0.62, H * 0.54],
-            [W * 0.8, H * 0.55],
-          ],
-          { minBright: 90, yMin: H * 0.45, yMax: ceil }
-        );
-        if (carved + carved2 < 25000)
-          console.warn('Cockpit-overlay: a szélvédő-maszk alig talált falat', carved, carved2);
+        // Kézi maszk (public/mask-editor.html): ha van a szerveren handmask.png,
+        // AZ a maszk — a zöld vonás üveg (átlátszó), a piros fedő (keret), minden
+        // más pixel a fotó marad (fedett). Az algoritmikus kivájás csak tartalék,
+        // ha NINCS kézi rajz (hiányzó fájl vagy üres fájl).
+        let handMask = null;
+        try {
+          const res = await fetch('handmask.png', { cache: 'no-store' });
+          if (res.ok) {
+            const hm = await createImageBitmap(await res.blob());
+            const hcv = document.createElement('canvas');
+            hcv.width = W; hcv.height = H;
+            const hctx = hcv.getContext('2d');
+            hctx.drawImage(hm, 0, 0, W, H);
+            handMask = hctx.getImageData(0, 0, W, H).data;
+          }
+        } catch (e) {
+          // nincs kézi maszk — az algoritmikus marad
+        }
+        let handStrokePx = 0;
+        if (handMask) {
+          for (let p = 0; p < W * H; p++) if (handMask[p * 4 + 3] > 32) handStrokePx++;
+        }
+        const maskOnly = handMask !== null && handStrokePx > 0;
+
+        if (maskOnly) {
+          // MASK-ONLY: minden pixel fedett (a fotó), a rajz dönt — a zöld
+          // vonások alatt átlátszik a 3D világ, minden más a fotót mutatja.
+          for (let p = 0; p < W * H; p++) d[p * 4 + 3] = 255;
+        } else {
+          // ALGORITMIKUS (tartalék): a fotó szélvédőjén át a 3D világnak kell
+          // látszania, de a fotóban a "táj" egy stúdiófal — és a fal alsó
+          // részét a softbox fénye-árnyéka sávokra vágja. Először a fő falat
+          // szívjuk ki (alacsonyabb fényküszöbbel, hogy a sötétebb sávokon is
+          // átjárjon), majd célzott magokkal (carvePockets) a maszk alatt
+          // maradt zsebeket is (a zsebeket sötét sávok zárják — a kormányt,
+          // műszerfalat nem éri). A wallCeiling oszloponként megmondja, hol
+          // végződik a fal: a világos-szürke műszerfal-teteje a fényküszöbökön
+          // átesne, de a maszk alá — a beltér fölé — így nem érhet.
+          const ceil = wallCeiling(d, W, H);
+          const carved = carveTransparent(
+            d, W, H,
+            [
+              [W * 0.45, H * 0.2], [W * 0.2, H * 0.24], [W * 0.75, H * 0.2],
+              [W * 0.95, H * 0.2], [W * 0.04, H * 0.35], // az utolsó: bal oldali ablak
+            ],
+            { minBright: 95, maxSat: 60, yMax: ceil }
+          );
+          const carved2 = carvePockets(
+            d, W, H,
+            [
+              [W * 0.45, H * 0.53], [W * 0.35, H * 0.55], [W * 0.62, H * 0.54],
+              [W * 0.8, H * 0.55],
+            ],
+            { minBright: 90, yMin: H * 0.45, yMax: ceil }
+          );
+          if (carved + carved2 < 25000)
+            console.warn('Cockpit-overlay: a szélvédő-maszk alig talált falat', carved, carved2);
+        }
 
         if (mx1 - mx0 > 60 && my1 - my0 > 20) {
           const ix = 16, iy = 10; // a keret kihagyása
@@ -374,26 +404,14 @@ export class Game {
           this.mirrorQuadMat.needsUpdate = true;
         }
 
-        // Kézi maszk (a public/mask-editor.html-ben rajzolt): a zöld vonások
-        // átlátszót, a pirosak fedőt kényszerítenek. Az algoritmikus maszk
-        // UTÁN fut, így minden kézzel javítható — ha nincs ilyen fájl
-        // (handmask.png) a szerveren, az algoritmikus maszk marad érvényben.
-        try {
-          const res = await fetch('handmask.png', { cache: 'no-store' });
-          if (res.ok) {
-            const hm = await createImageBitmap(await res.blob());
-            const hcv = document.createElement('canvas');
-            hcv.width = W; hcv.height = H;
-            const hctx = hcv.getContext('2d');
-            hctx.drawImage(hm, 0, 0, W, H);
-            const stats = applyHandMask(d, W, H, hctx.getImageData(0, 0, W, H).data);
-            if (stats.glass + stats.frame > 0)
-              console.log(`Cockpit-overlay: kézi maszk ${stats.glass} üveg + ${stats.frame} keret px`);
-            else
-              console.warn('Cockpit-overlay: handmask.png üres (nincs vonás) — az algoritmikus maszk marad');
-          }
-        } catch (e) {
-          // nincs kézi maszk — az algoritmikus marad
+        // Kézi maszk érvényesítése — mask-only módban ez a TELJES maszk; a
+        // tartalék ágon csak ráerősít az algoritmikus kivájásra.
+        if (handMask) {
+          const stats = applyHandMask(d, W, H, handMask);
+          if (stats.glass + stats.frame > 0)
+            console.log(`Cockpit-overlay: kézi maszk ${stats.glass} üveg + ${stats.frame} keret px${maskOnly ? ' (egyetlen maszk)' : ''}`);
+          else
+            console.warn('Cockpit-overlay: handmask.png üres (nincs vonás) — az algoritmikus maszk marad');
         }
 
         ctx.putImageData(idata, 0, 0);
