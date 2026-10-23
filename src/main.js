@@ -157,6 +157,8 @@ export class Game {
         if (ev.selfDidIt) {
           // a kapu-időből való levonás látható legyen a KAPU-IDŐ panelen
           this.hud.timeHit(PEN.cutIn);
+          // és nagy, képernyő-középponti figyelmeztetés is (SÁV FOGLALT-stílus)
+          this.warnBig('JOBBRÓL ELŐZTÉL! −' + PEN.cutIn + ' s', '#ff8a80', true);
         } else {
           this.pushTip('Jobbról előztek — húzódj jobbra!');
         }
@@ -236,7 +238,7 @@ export class Game {
     const sum = nearest
       ? ` Legközelebbi blokkoló: ${nearest.dist.toFixed(2)} m (δz=${nearest.dz.toFixed(2)} m)` : '';
     console.log(`[sávváltás] NINCS VÁLTÁS: a cél-sáv foglalt (irány: ${d}, játékos sáv: ${from}, x=${p.x.toFixed(2)}, cél-sáv: ${to}) — blokkoló: ${blockers || '?'}${sum}`);
-    this.warnLane();
+    this.warnBig('SÁV FOGLALT!', '#ffd54a');
   }
 
   // 2D „belső tér” overlay (réteg 3): a cockpit-fotó a vásznon.  A fotón a
@@ -458,10 +460,14 @@ export class Game {
     setTimeout(() => { this.tipT = TIP_DELAY; }, 3200);
   }
 
-  // Nagy figyelmeztetés: nem engedettük a sávváltást (a blokkoló autó miatt).
-  warnLane() {
+  // Nagy figyelmeztetés: képernyő-középponti, animált felirat.  A SÁV FOGLALT
+  // és a jobbról-előzés büntetése is ezt használja — a szín a feliraté.
+  // small: a hosszabb feliratokhoz kisebb betű (ne lógjon ki a széleken).
+  warnBig(text, color, small = false) {
     const el = $('laneWarn');
-    el.textContent = 'SÁV FOGLALT!';
+    el.textContent = text;
+    el.style.color = color;
+    el.style.fontSize = small ? 'clamp(28px, 5vw, 76px)' : '';
     el.classList.remove('warn');
     void el.offsetWidth; // reflow → az animáció mindig újra indul
     el.classList.add('warn');
