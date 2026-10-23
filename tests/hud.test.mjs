@@ -7,7 +7,7 @@ const { document, localStorage, makeEl } = installDomStubs();
 
 function mkHud() {
   const ids = ['score', 'best', 'mult', 'streak', 'lives', 'ecoFill', 'ecoVal',
-    'secFill', 'speed', 'hintBox', 'flash', 'sigL', 'sigR'];
+    'ecoBox', 'gateT', 'gateSub', 'secFill', 'speed', 'hintBox', 'flash', 'sigL', 'sigR'];
   const el = {};
   for (const id of ids) el[id] = makeEl();
   document.register(el);

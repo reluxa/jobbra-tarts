@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { carveTransparent } from '../src/mask.js';
+import { carveTransparent, wallCeiling } from '../src/mask.js';
 
 // 20×10 RGBA kép: sötét háttér + egy világos-szürke fal + színes kijelző +
 // a falban egy sötét sáv, ami kettévágja az alsó részt.
@@ -64,4 +64,33 @@ test('carveTransparent: a sötét keret fénycsíkja átlátszó marad (széli c
   assert.equal(d[(4 * W + 12) * 4 + 3], 0, 'a fal közepe kimaszkolva');
   assert.equal(d[(4 * W + 8) * 4 + 3], 0, 'a fal a fénycsík mellett is kimaszkolva');
   assert.equal(d[(4 * W + 4) * 4 + 3], 255, 'az oszlop érintetlen');
+});
+
+// A wallCeiling oszloponként megkeresi a fal alját: fent világos-szürke fal,
+// lent a „műszerfal-teteje” is világos-szürke (átmegy a fényküszöbön), de a
+// fal alja éles törés — a maszknak ott kell megállnia.
+test('wallCeiling: a fal alja a törésnél van, a világos műszerfal-teteje nem fal', () => {
+  const W = 20, H = 10;
+  const d = new Uint8ClampedArray(W * H * 4);
+  const px = (x, y, r, g, b) => { const i = (y * W + x) * 4; d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255; };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) px(x, y, 20, 22, 24);
+  for (let y = 0; y < 5; y++) for (let x = 3; x < 17; x++) px(x, y, 178, 180, 182); // a fal
+  for (let y = 5; y < 9; y++) for (let x = 3; x < 17; x++) px(x, y, 150, 152, 155); // világos „műszerfal-teteje”
+  const ceil = wallCeiling(d, W, H, { from: 0, to: H });
+  assert.equal(ceil[5], 5, 'a fal alja y=5 (a törésnél), nem a kép alja');
+  assert.equal(ceil[19], 10, 'nincs fal a bal/jobb oldalon: nincs határ');
+});
+
+test('carveTransparent: a wallCeiling alá nem ér a maszk', () => {
+  const W = 20, H = 10;
+  const d = new Uint8ClampedArray(W * H * 4);
+  const px = (x, y, r, g, b) => { const i = (y * W + x) * 4; d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255; };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) px(x, y, 20, 22, 24);
+  for (let y = 0; y < 7; y++) for (let x = 3; x < 17; x++) px(x, y, 178, 180, 182); // a fal + „világos beltér”
+  for (let y = 7; y < 10; y++) for (let x = 3; x < 17; x++) px(x, y, 150, 152, 155);
+  const ceil = wallCeiling(d, W, H, { from: 0, to: H });
+  carveTransparent(d, W, H, [[10, 3]], { yMax: ceil });
+  assert.equal(d[(3 * W + 10) * 4 + 3], 0, 'a fal teteje átlátszó');
+  assert.equal(d[(6 * W + 10) * 4 + 3], 0, 'a fal alja (a törésig) átlátszó');
+  assert.equal(d[(8 * W + 10) * 4 + 3], 255, 'a fal-alj alatt (világos műszerfal-teteje) opák');
 });

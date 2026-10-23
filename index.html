@@ -20,49 +20,77 @@
     #game { position: fixed; inset: 0; }
     #game canvas { display: block; width: 100%; height: 100%; }
 
-    /* ---------- HUD ---------- */
+    /* ---------- HUD ----------
+       Minden blokk sötét, félig átlátszó panelen ül, hogy a világos
+       (szélvédő/ég) háttéren is olvasható maradjon. */
     #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; z-index: 5; }
-    .hudbox { position: absolute; text-shadow: var(--hud-shadow); }
+    .hudbox { position: absolute; }
+    .panel {
+      background: linear-gradient(180deg, rgba(10, 24, 38, 0.66), rgba(5, 13, 22, 0.58));
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 12px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    }
+    .lbl { font-size: 13px; letter-spacing: 2.5px; opacity: 0.85; }
 
-    #scoreBox { top: 14px; left: 16px; }
-    #scoreBox .lbl { font-size: 12px; letter-spacing: 2px; opacity: 0.75; }
-    #score { font-size: 40px; font-weight: 800; font-variant-numeric: tabular-nums; }
-    #best { font-size: 13px; opacity: 0.65; margin-top: 2px; }
+    #scoreBox { top: 14px; left: 16px; padding: 8px 16px 10px; }
+    #score { font-size: 44px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.05; }
+    #best { font-size: 13px; opacity: 0.8; margin-top: 3px; }
 
-    #myBox { top: 14px; left: 50%; transform: translateX(-50%); text-align: center; font-variant-numeric: tabular-nums; }
-    #mult { font-size: 22px; font-weight: 800; color: #ffd54a; }
-    #streak { font-size: 13px; color: #ffd54a; opacity: 0.9; }
-    #lives { font-size: 15px; letter-spacing: 3px; margin-top: 2px; }
+    #myBox { top: 14px; left: 50%; transform: translateX(-50%); text-align: center; font-variant-numeric: tabular-nums; padding: 8px 20px 10px; }
+    #mult { font-size: 26px; font-weight: 800; color: #ffd54a; line-height: 1.1; }
+    #streak { font-size: 14px; color: #ffd54a; opacity: 0.95; }
+    #lives { font-size: 17px; letter-spacing: 4px; margin-top: 3px; }
 
-    #ecoBox { top: 18%; right: 16px; width: 210px; }
-    #ecoBox .lbl { font-size: 12px; letter-spacing: 2px; opacity: 0.8; margin-bottom: 4px; display: flex; justify-content: space-between; }
-    #ecoBar { height: 14px; border-radius: 8px; background: rgba(255, 255, 255, 0.15); overflow: hidden; box-shadow: inset 0 0 4px rgba(0,0,0,0.4); }
-    #ecoFill { height: 100%; width: 50%; background: linear-gradient(90deg, #e53935, #fdd835 55%, #43a047); border-radius: 8px; transition: width 0.12s linear; }
-    #secBar { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.12); margin-top: 6px; overflow: hidden; }
-    #secFill { height: 100%; width: 100%; background: #29b6f6; }
+    /* KAPU-IDŐ kijelző: nagy másodperc-számláló + töltöttség-sáv + kapu-felé haladás */
+    #ecoBox { top: 14px; right: 16px; width: 252px; padding: 8px 14px 10px; }
+    #ecoBox .lbl { margin-bottom: 2px; display: flex; justify-content: space-between; align-items: baseline; }
+    #ecoVal { font-size: 14px; font-weight: 700; opacity: 0.95; font-variant-numeric: tabular-nums; }
+    #gateT { font-size: 46px; font-weight: 900; line-height: 1.05; font-variant-numeric: tabular-nums; }
+    #gateT .unit { font-size: 20px; font-weight: 700; opacity: 0.7; margin-left: 4px; }
+    #gateT .unit small { font-size: 13px; letter-spacing: 1px; }
+    #ecoBar { height: 18px; margin-top: 4px; border-radius: 9px; background: rgba(255, 255, 255, 0.14); overflow: hidden; box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.5); border: 1px solid rgba(255, 255, 255, 0.12); }
+    #ecoFill { height: 100%; width: 50%; background: linear-gradient(90deg, #43a047, #fdd835 55%, #e53935); border-radius: 9px; transition: width 0.12s linear; }
+    #secBar { height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.12); margin-top: 6px; overflow: hidden; }
+    #secFill { height: 100%; width: 0%; background: #29b6f6; border-radius: 4px; transition: width 0.12s linear; }
+    #gateSub { margin-top: 4px; font-size: 12px; opacity: 0.85; letter-spacing: 1px; font-variant-numeric: tabular-nums; }
+    /* figyelmeztetés: narancs (≤50%), kritikus: piros villogó szám (≤25%) */
+    #ecoBox.warn #gateT { color: #ffb300; }
+    #ecoBox.crit #gateT { color: #ff5252; animation: gatePulse 0.9s ease-in-out infinite; }
+    #ecoBox.crit #ecoBar { border-color: rgba(255, 82, 82, 0.9); }
+    @keyframes gatePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-    #speedBox { bottom: 16px; right: 18px; text-align: right; }
-    #speed { font-size: 54px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
-    #speedUnit { font-size: 14px; opacity: 0.7; }
+    #speedBox { bottom: 14px; right: 16px; text-align: right; padding: 6px 16px 8px; }
+    #speed { font-size: 62px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 0.95; -webkit-text-stroke: 1px rgba(0, 0, 0, 0.3); }
+    #speedUnit { font-size: 15px; opacity: 0.85; letter-spacing: 2px; }
 
     /* indexjelző nyilak (HUD) */
-    #sigBox { bottom: 108px; left: 50%; transform: translateX(-50%);
-      display: flex; gap: 8px; align-items: center; font-size: 26px; font-weight: 800; }
-    #sigL, #sigR { color: #ffb300; opacity: 0.25; text-shadow: 0 0 10px rgba(255, 150, 0, 0.8); }
+    #sigBox { bottom: 104px; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 10px; align-items: center; font-size: 30px; font-weight: 800; }
+    #sigL, #sigR { color: #ffb300; opacity: 0.25; text-shadow: 0 0 10px rgba(255, 150, 0, 0.8), 0 2px 6px rgba(0, 0, 0, 0.9); }
     @keyframes sigblink {
       0% { opacity: 1; } 49% { opacity: 1; } 50% { opacity: 0.15; } 100% { opacity: 0.15; }
     }
 
-    /* a dashboard elrejtett kicsit: halványabb, háttérbe húzódó HUD */
-    #hud { opacity: 0.78; }
-    .hudbox { filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5)); }
-    #speedBox { opacity: 0.8; }
-    #myBox { opacity: 0.85; }
-    #scoreBox .lbl, #ecoBox .lbl { opacity: 0.5; }
-    #hintBox { opacity: 0.6; }
+    #hintBox { bottom: 18px; left: 50%; transform: translateX(-50%); text-align: center; font-size: 16px;
+      opacity: 0.95; max-width: min(760px, 92%);
+      background: rgba(8, 18, 30, 0.62); border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 12px; padding: 10px 20px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
+    #hintBox small { display: block; font-size: 13px; opacity: 0.75; margin-top: 5px; }
 
-    #hintBox { bottom: 18px; left: 50%; transform: translateX(-50%); text-align: center; font-size: 15px; opacity: 0.6; max-width: 90%; }
-    #hintBox small { display: block; font-size: 12px; opacity: 0.6; margin-top: 4px; }
+    /* keskeny képernyő (telefon): PONT balra, KAPU-IDŐ jobbra, KAPU alájuk — ne ütközzenek */
+    @media (max-width: 700px) {
+      #scoreBox { top: 10px; left: 10px; padding: 6px 12px 8px; }
+      #score { font-size: 34px; }
+      #myBox { top: 92px; left: 10px; transform: none; text-align: left; padding: 6px 14px 8px; }
+      #mult { font-size: 22px; }
+      #streak { font-size: 12px; }
+      #ecoBox { top: 10px; right: 10px; width: 196px; padding: 6px 10px 8px; }
+      #gateT { font-size: 34px; }
+      #speed { font-size: 48px; }
+      #sigBox { bottom: 88px; }
+      #hintBox { font-size: 14px; padding: 8px 14px; }
+    }
 
     /* 3D-be vetített feliratok */
     #labels { position: fixed; inset: 0; pointer-events: none; z-index: 6; }
@@ -150,23 +178,25 @@
   <div id="game"></div>
 
   <div id="hud" class="hidden">
-    <div class="hudbox" id="scoreBox">
+    <div class="hudbox panel" id="scoreBox">
       <div class="lbl">PONT</div>
       <div id="score">0</div>
       <div id="best">legjobb: 0</div>
     </div>
-    <div class="hudbox" id="myBox">
+    <div class="hudbox panel" id="myBox">
       <div class="lbl">KAPU</div>
       <div id="mult">KAPU 1</div>
       <div id="streak"></div>
       <div id="lives"></div>
     </div>
-    <div class="hudbox" id="ecoBox">
+    <div class="hudbox panel" id="ecoBox">
       <div class="lbl"><span>KAPU-IDŐ</span><span id="ecoVal">100%</span></div>
+      <div id="gateT">–<span class="unit">s</span></div>
       <div id="ecoBar"><div id="ecoFill"></div></div>
-      <div id="secBar" style="opacity:.55"><div id="secFill"></div></div>
+      <div id="secBar"><div id="secFill"></div></div>
+      <div id="gateSub">a kapuig 0%</div>
     </div>
-    <div class="hudbox" id="speedBox">
+    <div class="hudbox panel" id="speedBox">
       <div id="speed">0</div>
       <div id="speedUnit">km/h</div>
     </div>

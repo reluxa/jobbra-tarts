@@ -5,27 +5,73 @@
 // műszerfal szegélye) és a színes felületek (kijelzők) természetes
 // megállási pontok.
 //
+// Oszloponkénti „fal-alj”: az a sor, ahol a fentről egybefüggő, világos és
+// színtelen stúdiófal ALUL lezárul (a következő minRun sor már nem fal).
+// A maszk csak efölött élhet: a műszerfal teteje is lehet világos-szürke
+// (a fényküszöbökön átmegy), de a fotón a fal aljánál éles törés van.
+// Visszaad egy Uint16Array-t (oszloponként az első „nem-fal” sor — a maszk
+// csak < ezen a soron élhet; ha nincs ilyen, a kép alja a határ).
+export function wallCeiling(d, W, H, opt = {}) {
+  const minB = opt.minB ?? 165;   // fal = ennél világosabb …
+  const maxSat = opt.maxSat ?? 45;
+  const minRun = opt.minRun ?? 4; // ennyi egymás utáni nem-fal sor = fal-alj
+  const from = Math.max(0, Math.floor(opt.from ?? H * 0.35));
+  const to = Math.min(H, Math.floor(opt.to ?? H * 0.8));
+  const isWall = (x, y) => {
+    const i = (y * W + x) * 4;
+    const mx = Math.max(d[i], d[i + 1], d[i + 2]);
+    const mn = Math.min(d[i], d[i + 1], d[i + 2]);
+    return mx >= minB && mx - mn <= maxSat;
+  };
+  const ceil = new Uint16Array(W);
+  for (let x = 0; x < W; x++) {
+    let gap = 0, seen = false, c = to, hit = false;
+    for (let y = from; y < to; y++) {
+      if (isWall(x, y)) { seen = true; gap = 0; }
+      else if (seen) {
+        gap++;
+        if (gap >= minRun) { c = y - minRun + 1; hit = true; break; }
+      }
+    }
+    // a sáv aljáig maradt rés: a sáv alja a határ; ha fent nem volt fal
+    // (belteri oszlop), nincs határ
+    if (!hit) c = to - gap;
+    ceil[x] = c;
+  }
+  return ceil;
+}
+
 // data: Uint8ClampedArray (RGBA, egy ImageData.data). Módosítja a helyszínen
 // (az α csatornát zeri). Visszaadja a kimaszkolt px számát.
-export function carveTransparent(d, W, H, seeds, opt = {}) {  const minB = opt.minBright ?? 125;
+//
+// A yMax lehet szám VAGY Uint16Array (wallCeiling): a maszk csak e sora
+// fölött élhet — a világos műszerfal-tetejét így nem éri el.
+export function carveTransparent(d, W, H, seeds, opt = {}) {
+  const minB = opt.minBright ?? 125;
   const maxB = opt.maxBright ?? 255;
   const maxSat = opt.maxSat ?? 55;
-  const yMax = Math.floor(opt.yMax == null ? H : opt.yMax); // a maszk csak a felső részen él
+  const yMaxAll = opt.yMax == null ? H : opt.yMax; // szám vagy per-oszlop Uint16Array
+  const yMaxArr = ArrayBuffer.isView(yMaxAll) ? yMaxAll : null;
+  const yMaxRow = yMaxArr ? null : Math.floor(yMaxAll); // a maszk csak a felső részen él
   const darkB = opt.darkB ?? 100; // a „sötét keret”-nek számítási küszöb
 
+  const capAt = (x) => (yMaxArr ? yMaxArr[x] : yMaxRow);
+  // a per-oszlop fal-alj mindig szigorúbb: a világos műszerfal-tetejét nem érjük el
   const qualifies = (i) => {
+    const p = i >> 2, x = p % W;
+    if (p - x >= capAt(x) * W) return false;
     const r = d[i], g = d[i + 1], b = d[i + 2];
     const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
     return mx - mn <= maxSat && mx >= minB && mx <= maxB;
   };
 
-  const seen = new Uint8Array(W * yMax);
+  const seen = new Uint8Array(W * H);
   const stack = [];
   let carved = 0;
 
   for (const [sx, sy] of seeds) {
     const x = Math.min(W - 1, Math.max(0, Math.round(sx)));
-    const y = Math.min(yMax - 1, Math.max(0, Math.round(sy)));
+    const y = Math.min(capAt(x) - 1, Math.max(0, Math.round(sy)));
     const start = y * W + x;
     if (seen[start] || !qualifies(start * 4)) continue;
     stack.length = 0;
@@ -39,7 +85,7 @@ export function carveTransparent(d, W, H, seeds, opt = {}) {  const minB = opt.m
       if (x2 > 0) { const q = p - 1; if (!seen[q] && qualifies(q * 4)) { seen[q] = 1; stack.push(q); } }
       if (x2 < W - 1) { const q = p + 1; if (!seen[q] && qualifies(q * 4)) { seen[q] = 1; stack.push(q); } }
       if (y2 > 0) { const q = p - W; if (!seen[q] && qualifies(q * 4)) { seen[q] = 1; stack.push(q); } }
-      if (y2 < yMax - 1) { const q = p + W; if (!seen[q] && qualifies(q * 4)) { seen[q] = 1; stack.push(q); } }
+      if (y2 < H - 1) { const q = p + W; if (!seen[q] && qualifies(q * 4)) { seen[q] = 1; stack.push(q); } }
     }
   }
 
@@ -49,7 +95,8 @@ export function carveTransparent(d, W, H, seeds, opt = {}) {  const minB = opt.m
   // fut) — visszaállítjuk.  A maszk széle (pl. a fal alsó sora a beltér
   // fölött) csak az egyik oldalról sötét, azt megtartjuk átlátszónak.
   const isDark = (i) => Math.max(d[i], d[i + 1], d[i + 2]) < darkB;
-  for (let y = 1; y < yMax - 1; y++) {
+  const cleanH = yMaxArr ? H : yMaxRow;
+  for (let y = 1; y < cleanH - 1; y++) {
     for (let x = 1; x < W - 1; x++) {
       const p = y * W + x;
       if (d[p * 4 + 3] !== 0) continue;
@@ -80,7 +127,9 @@ export function carveTransparent(d, W, H, seeds, opt = {}) {  const minB = opt.m
 //
 // opt: minBright (80), maxSat (60), yMin/yMax (a zseb-kieresztő sáv).
 export function carvePockets(d, W, H, seeds, opt = {}) {
-  const maxC = Math.floor(opt.yMax == null ? H : opt.yMax);
+  const yMaxAll = opt.yMax == null ? H : opt.yMax;
+  const yMaxArr = ArrayBuffer.isView(yMaxAll) ? yMaxAll : null;
+  const maxC = yMaxArr ? H : Math.floor(yMaxAll);
   const minC = Math.floor(opt.yMin ?? 0);
   const minBright = opt.minBright ?? 80;
   const maxSat = opt.maxSat ?? 60;
@@ -88,6 +137,8 @@ export function carvePockets(d, W, H, seeds, opt = {}) {
   const stack = [];
   let carved = 0;
   const qualifies = (i) => {
+    const p = i >> 2, x = p % W;
+    if (yMaxArr && p - x >= yMaxArr[x] * W) return false;
     const r = d[i], g = d[i + 1], b = d[i + 2];
     const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
     return mx - mn <= maxSat && mx >= minBright;

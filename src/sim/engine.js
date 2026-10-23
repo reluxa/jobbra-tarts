@@ -25,11 +25,18 @@ export class SimEngine {
     this.seed = seed;
     this.rng = makeRng(seed);
     this.onEvent = null;   // (ev) => void
+    // EGY Scoring-példány az egész életciklusra — a reset() csak init-el,
+    // hogy a nézet (Game) eltárolt referenciája mindig érvényes maradjon.
+    this.scoring = new Scoring();
     this.reset();
   }
 
   reset() {
-    this.scoring = new Scoring();
+    // FIGYELEM: a Scoring PÉLDÁNYT újra kell inicializálni (init), NEM lecserélni!
+    // A nézet (main.js Game) a konstruktorban eltárolja a `this.scoring` hivatkozást,
+    // és a HUD abból olvas — ha itt új Scoring-ot csinálnánk, a nézet örökre a
+    // befagyott régi példányt látná (kapu-idő 100%-on ragad, sosem jár le).
+    this.scoring.init();
     this.player = new SimPlayer();
     this.cars = [];
     this.spawnTimer = 1.5;

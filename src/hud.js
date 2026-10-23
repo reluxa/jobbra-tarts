@@ -9,6 +9,13 @@ export const formatLives = (n) => '❤'.repeat(Math.max(0, n)) + '🖤'.repeat(M
 // Az időbar színe a százalékból: zöld (120°H) → piros (6°), soha nem 0-ra.
 export const batteryHue = (pct) => Math.max(6, (pct / 100) * 120);
 
+// A kapu-idő kijelzés formázása: másodpercek, sosem negatív, kerekítve.
+export const formatGateSecs = (s) => Math.max(0, Math.round(s)).toString();
+
+// A kapu-idő „hangulata” a százalékból: bőven van / figyelmeztet / kritikus.
+// A kijelző emiatt kap hangulat-osztályt (ecoBox.warn / ecoBox.crit).
+export const timeTone = (pct) => (pct <= 25 ? 'crit' : pct <= 50 ? 'warn' : 'ok');
+
 export class HUD {
   constructor() {
     this.el = {
@@ -17,6 +24,7 @@ export class HUD {
       secFill: $('secFill'), speed: $('speed'), hint: $('hintBox'),
       flash: $('flash'),
       sigL: $('sigL'), sigR: $('sigR'),
+      ecoBox: $('ecoBox'), gateT: $('gateT'), gateSub: $('gateSub'),
     };
     this.sigTimer = 0;
     this.best = 0;
@@ -34,12 +42,21 @@ export class HUD {
     this.el.speed.textContent = Math.round(kmh);
   }
 
-  updateEnergy(pct, gateFrac) {
+  // Kapu-idő kijelző.  pct = a kapu-óra töltöttsége (0..100), gateFrac = haladás
+  // a következő kapu felé (0..1), secs = hátralévő másodperc (a nagy szám).
+  updateEnergy(pct, gateFrac, secs = null) {
     this.el.ecoVal.textContent = Math.round(pct) + '%';
     this.el.ecoFill.style.width = Math.max(0, Math.min(100, pct)) + '%';
     // piros ha veszélyben az idő, zöld ha bőven van
     this.el.ecoFill.style.background = `hsl(${batteryHue(pct)}, 85%, 42%)`;
     this.el.secFill.style.width = (gateFrac * 100) + '%';
+    if (this.el.gateSub) this.el.gateSub.textContent = 'a kapuig ' + Math.round((gateFrac || 0) * 100) + '%';
+    if (secs != null && this.el.gateT) this.el.gateT.textContent = formatGateSecs(secs);
+    // hangulat-osztályok: figyelmeztetés (narancs), kritikus (piros villogás)
+    if (this.el.ecoBox) {
+      this.el.ecoBox.classList.toggle('warn', timeTone(pct) === 'warn');
+      this.el.ecoBox.classList.toggle('crit', timeTone(pct) === 'crit');
+    }
   }
 
   updateGate(gates, difficulty, req) {

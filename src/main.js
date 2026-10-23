@@ -4,7 +4,7 @@
 // hangokat/effekteket és az állapotgépet tartja, az eseményekből építve.
 import * as THREE from 'three';
 import { CAMERA, PHYS_FIXED, SCORE, SIGNAL, TRAFFIC, laneCenterX } from './constants.js';
-import { carveTransparent, carvePockets } from './mask.js';
+import { carveTransparent, carvePockets, wallCeiling } from './mask.js';
 import { World } from './world.js';
 import { Player } from './player.js';
 import { TrafficView } from './traffic.js';
@@ -294,13 +294,17 @@ export class Game {
         // fényküszöbbel, hogy a sötétebb sávokon is átjárjon), majd célzott
         // magokkal (carvePockets) a maszk alatt maradt zsebeket is
         // (a zsebeket sötét sávok zárják — a kormányt, műszerfalat nem éri).
+        // A wallCeiling oszloponként megmondja, hol végződik a fal: a 
+        // világos-szürke műszerfal-teteje a fényküszöbökön átesne, de a 
+        // maszk alá — a beltér fölé — így nem érhet.
+        const ceil = wallCeiling(d, W, H);
         const carved = carveTransparent(
           d, W, H,
           [
             [W * 0.45, H * 0.2], [W * 0.2, H * 0.24], [W * 0.75, H * 0.2],
             [W * 0.95, H * 0.2], [W * 0.04, H * 0.35], // az utolsó: bal oldali ablak
           ],
-          { minBright: 95, maxSat: 60, yMax: H * 0.78 }
+          { minBright: 95, maxSat: 60, yMax: ceil }
         );
         const carved2 = carvePockets(
           d, W, H,
@@ -308,7 +312,7 @@ export class Game {
             [W * 0.45, H * 0.53], [W * 0.35, H * 0.55], [W * 0.62, H * 0.54],
             [W * 0.8, H * 0.55],
           ],
-          { minBright: 90, yMin: H * 0.45, yMax: H * 0.72 }
+          { minBright: 90, yMin: H * 0.45, yMax: ceil }
         );
         if (carved + carved2 < 25000)
           console.warn('Cockpit-overlay: a szélvédő-maszk alig talált falat', carved, carved2);
@@ -395,7 +399,7 @@ export class Game {
     this.setState('play');
     this.hud.updateLives(3);
     this.hud.updateScore(0);
-    this.hud.updateEnergy(100, 0);
+    this.hud.updateEnergy(100, 0, this.scoring.gateT);
     this.hud.updateGate(0, 0);
     this.hud.updateSpeed(0);
   }
@@ -504,7 +508,7 @@ export class Game {
     const kmh = Math.abs(this.engine.player.fwdSpeed) * 3.6;
     this.hud.updateScore(this.scoring.score);
     this.hud.updateSpeed(kmh);
-    this.hud.updateEnergy(this.scoring.energyFrac() * 100, this.scoring.gateFrac());
+    this.hud.updateEnergy(this.scoring.energyFrac() * 100, this.scoring.gateFrac(), this.scoring.gateT);
     this.hud.updateGate(this.scoring.gates, this.engine.difficulty(), this.scoring.reqAvg());
   }
 
