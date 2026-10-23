@@ -42,6 +42,26 @@ const HINT_KEYS = TOUCH
   ? '◀ ▶ sávváltás • ❮ ❯ index'
   : 'A/D sávváltás • Q/E index • P szünet • M hang';
 
+// Teljes képernyő (mobil). A Fullscreen API-t csak felhasználói gesztusból lehet
+// kérni, ezért az INDÍTÁS-koppintás lép be vele; a ⛶ gomb ki/be kapcsol.
+// iPhone Safari nem támogatja az elem-teljesképernyőt (ott a gomb rejtve marad;
+// „Kezdőképernyőhöz adás" után viszont standalone módban indul).
+const FS_SUPPORTED = !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+function enterFullscreen() {
+  const el = document.documentElement;
+  try {
+    if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+  } catch { /* nem támogatott */ }
+}
+function exitFullscreen() {
+  try {
+    if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+  } catch { /* nem támogatott */ }
+}
+
 const $ = (id) => document.getElementById(id);
 
 export class Game {
@@ -385,8 +405,37 @@ export class Game {
 
   initEvents() {
     this.input.onAnyKey = () => this.audio.ensure();
-    $('startBtn').addEventListener('click', () => { this.audio.ensure(); this.start(); });
-    $('restartBtn').addEventListener('click', () => { this.audio.ensure(); this.start(); });
+    $('startBtn').addEventListener('click', () => {
+      this.audio.ensure();
+      // a koppintás gesztusából lépjünk teljes képernyőre (mobilon)
+      if (TOUCH && FS_SUPPORTED && !fsElement()) enterFullscreen();
+      this.start();
+    });
+    $('restartBtn').addEventListener('click', () => {
+      this.audio.ensure();
+      if (TOUCH && FS_SUPPORTED && !fsElement()) enterFullscreen();
+      this.start();
+    });
+
+    // ⛶ gomb: teljes képernyő ki/be. Nem támogató böngészőn (iPhone Safari)
+    // egyszerűen nem jelenik meg.
+    const fsBtn = $('fsBtn');
+    if (fsBtn) {
+      if (!FS_SUPPORTED) fsBtn.style.display = 'none';
+      const syncFs = () => {
+        const on = !!fsElement();
+        fsBtn.classList.toggle('on', on);
+        fsBtn.setAttribute('aria-label', on ? 'Kilépés a teljes képernyőből' : 'Teljes képernyő');
+      };
+      fsBtn.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        if (fsElement()) exitFullscreen();
+        else enterFullscreen();
+      });
+      document.addEventListener('fullscreenchange', syncFs);
+      document.addEventListener('webkitfullscreenchange', syncFs);
+      syncFs();
+    }
 
     window.addEventListener('resize', () => {
       this.renderer.setSize(window.innerWidth, window.innerHeight, false);

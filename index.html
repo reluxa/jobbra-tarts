@@ -3,6 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <!-- iPhone: „Kezdőképernyőhöz adás" után teljes képernyős (standalone) indítás -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="icon" href="data:," />
   <title>Jobbra tartás — 3D autópálya</title>
   <style>
@@ -213,6 +217,19 @@
     #tSigR { left: 90px;  bottom: 240px; width: 58px; height: 58px; font-size: 22px; }
     @media (pointer: coarse) { #touch { display: block; } }
 
+    /* Teljes képernyő gomb — csak érintőképernyőn (mobilon) látszik.
+       Az INDÍTÁS-koppintás is belép teljes képernyőre, ez a ki/be kapcsoló. */
+    #fsBtn {
+      position: fixed; right: 14px; bottom: 110px; z-index: 8;
+      width: 44px; height: 44px; border-radius: 50%;
+      display: none; align-items: center; justify-content: center;
+      background: rgba(10, 24, 38, 0.55); border: 1.5px solid rgba(255, 255, 255, 0.25);
+      color: #fff; font-size: 20px; line-height: 1; pointer-events: auto;
+      touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+    }
+    #fsBtn.on { background: rgba(41, 182, 246, 0.35); border-color: rgba(41, 182, 246, 0.85); }
+    @media (pointer: coarse) { #fsBtn { display: flex; } }
+
     #flash { position: fixed; inset: 0; background: #ff1744; opacity: 0; pointer-events: none; z-index: 7; transition: opacity 0.4s ease; }
 
     /* Nagy sávváltás-figyelmeztetés (nem engedett váltáskor a képernyő közepén) */
@@ -281,6 +298,8 @@
     <button class="tbtn" id="tL" aria-label="Balra">◀</button>
     <button class="tbtn" id="tR" aria-label="Jobbra">▶</button>
   </div>
+
+  <button id="fsBtn" type="button" aria-label="Teljes képernyő">⛶</button>
 
   <div class="overlay" id="startOverlay">
     <h1>JOBBRA TARTÁS</h1>
