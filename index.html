@@ -38,7 +38,8 @@
     #best { font-size: 13px; opacity: 0.8; margin-top: 3px; }
 
     #myBox { top: 14px; left: 50%; transform: translateX(-50%); text-align: center; font-variant-numeric: tabular-nums; padding: 8px 20px 10px; }
-    #streak { font-size: 16px; color: #ffd54a; opacity: 0.95; }
+    #mult { font-size: 26px; font-weight: 800; color: #ffd54a; line-height: 1.1; }
+    #streak { font-size: 14px; color: #ffd54a; opacity: 0.95; }
 
     /* KAPU-IDŐ kijelző: nagy másodperc-számláló + töltöttség-sáv + kapu-felé haladás */
     #ecoBox { top: 18%; right: 16px; width: 252px; padding: 8px 14px 10px; }
@@ -109,6 +110,7 @@
       #scoreBox { top: 10px; left: 10px; padding: 6px 12px 8px; }
       #score { font-size: 34px; }
       #myBox { top: 92px; left: 10px; transform: none; text-align: left; padding: 6px 14px 8px; }
+      #mult { font-size: 22px; }
       #streak { font-size: 12px; }
       #ecoBox { top: 22%; right: 10px; width: 196px; padding: 6px 10px 8px; }
       #gateT { font-size: 34px; }
@@ -210,6 +212,8 @@
       <div id="best">legjobb: 0</div>
     </div>
     <div class="hudbox panel" id="myBox">
+      <div class="lbl">KAPU</div>
+      <div id="mult">KAPU 1</div>
       <div id="streak"></div>
     </div>
     <div class="hudbox panel" id="ecoBox">

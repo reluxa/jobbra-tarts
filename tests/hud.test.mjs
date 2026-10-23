@@ -6,7 +6,7 @@ import { HUD, batteryHue, formatTimeMinus } from '../src/hud.js';
 const { document, localStorage, makeEl } = installDomStubs();
 
 function mkHud() {
-  const ids = ['score', 'best', 'streak', 'ecoFill', 'ecoVal',
+  const ids = ['score', 'best', 'mult', 'streak', 'ecoFill', 'ecoVal',
     'ecoBox', 'gateT', 'gateSub', 'secFill', 'speed', 'hintBox', 'flash', 'sigL', 'sigR',
     'timeMinus'];
   const el = {};
@@ -48,7 +48,8 @@ test('HUD: elemmegjelenítések', () => {
   assert.ok(h.el.score.textContent.length >= 5);
   h.updateSpeed(97.6);
   assert.equal(h.el.speed.textContent, 98);
-  h.updateGate(0.75, 74.5);
+  h.updateGate(3, 0.75, 74.5);
+  assert.equal(h.el.mult.textContent, 'KAPU 4');
   assert.ok(h.el.streak.textContent.includes('74.5'));
 });
 

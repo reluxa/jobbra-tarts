@@ -16,7 +16,7 @@ import { SCORE, PHYS_FIXED } from '../src/constants.js';
 const { document, makeEl } = installDomStubs();
 
 function mkHud() {
-  const ids = ['score', 'best', 'streak', 'ecoFill', 'ecoVal',
+  const ids = ['score', 'best', 'mult', 'streak', 'ecoFill', 'ecoVal',
     'ecoBox', 'gateT', 'gateSub', 'secFill', 'speed', 'hintBox', 'flash', 'sigL', 'sigR'];
   const el = {};
   for (const id of ids) el[id] = makeEl();

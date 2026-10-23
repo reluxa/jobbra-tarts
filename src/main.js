@@ -511,7 +511,7 @@ export class Game {
     this.hud.updateScore(this.scoring.score);
     this.hud.updateSpeed(kmh);
     this.hud.updateEnergy(this.scoring.energyFrac() * 100, this.scoring.gateFrac(), this.scoring.gateT);
-    this.hud.updateGate(this.engine.difficulty(), this.scoring.reqAvg());
+    this.hud.updateGate(this.scoring.gates, this.engine.difficulty(), this.scoring.reqAvg());
   }
 
   debug() {

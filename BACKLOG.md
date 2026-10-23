@@ -13,7 +13,7 @@ Címkék: `[P1]` magas, `[P2]` közepes, `[P3]` alacsony/ötlet · `[x]` = kész
 
 ## Soron következő
 
-- [x] **1. Élet-számláló (❤) és a KAPU-felirat törlése a HUD-ról** — a mechanika (3 baleset → game over) és a „kell ≈ … km/h" kijelzés marad, csak a díszfeliratok mennek el
+- [x] **1. Élet-számláló (❤) törlése a HUD-ról** — a mechanika (3 baleset → game over) és a KAPU-felirat („KAPU #n", a pályát jelzi) marad
 - [ ] **2. Jobbról-előzés → nagy képernyő-középpontú figyelmeztetés** — mint a SÁV FOGLALT!, „JOBBRÓL ELŐZTÉL! −5 s" pirosban (`warnBig(text, color)` általánosítás)
 - [ ] **3. Sáv-függő időfogyás vizualizálása** — ×1,8 / ×1,35 / ×1 jelvény a KAPU-IDŐ panelen (piros/narancs/zöld), az effektív ütemmel
 - [ ] **4. Középső sáv + foglalt jobb sáv → ne fogyjon gyorsabban** — ha a tőlünk jobbra lévő sáv foglalt, az óra 1,0×-szal fogy (a 3. pont jelvénye ezt mutatja)
