@@ -72,8 +72,8 @@ export const TRAFFIC = {
   behindStart: 70,      // indulási távolság mögöttünk (m)
   behindSpan: 70,
   behindSpeed: [38, 46], // a gyors bal-sávos utolérők sebessége (m/s)
-  changeAhead: 9,        // játékos sávváltás: ezen belül ELŐL blokkol a cél-sávban lévő autó (m)
-  changeBehind: 20,      // játékos sávváltás: ezen belül MÖGÖTT is blokkol (m)
+  changeAhead: 4.5,      // játékos sávváltás: ezen belül ELŐL blokkol a cél-sávban lévő autó (m)
+  changeBehind: 10,      // játékos sávváltás: ezen belül MÖGÖTT is blokkol (m)
 };
 
 // ---- Pontozás / kapu-pálya --------------------

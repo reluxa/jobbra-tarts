@@ -135,11 +135,13 @@ test('aheadInLane: a legközelebbi azonos sávú autó, ghost kizárva, maxDist'
 test('canChangeTo: foglalt sáv az [−changeBehind, +changeAhead] ablakban, x-tűrés 2.3', () => {
   const e = fresh();
   assert.equal(e.canChangeTo(1, 0), true);
-  e.addObstacle(0, 5, 1);  // 5 m elől — blokkol (changeAhead=9)
+  e.addObstacle(0, TRAFFIC.changeAhead * 0.5, 1); // ablakon belül elől — blokkol
   assert.equal(e.canChangeTo(1, 0), false);
-  e.cars[0].z = -10;       // 10 m mögött — blokkol (changeBehind=20)
+  e.cars[0].z = -TRAFFIC.changeBehind * 0.5;      // ablakon belül mögött — blokkol
   assert.equal(e.canChangeTo(1, 0), false);
-  e.cars[0].z = -30;       // 30 m mögött — szabad
+  e.cars[0].z = -(TRAFFIC.changeBehind + 2);      // az ablakon kívül mögött — szabad
+  assert.equal(e.canChangeTo(1, 0), true);
+  e.cars[0].z = TRAFFIC.changeAhead + 2;          // az ablakon kívül elől — szabad
   assert.equal(e.canChangeTo(1, 0), true);
   e.cars[0].x = laneCenterX(2); // a cél-sáv középpontjától > 2.3 m-re — nem számít
   e.cars[0].z = 5;
@@ -156,7 +158,7 @@ test('playerChangeLane: ok/edge/busy/blocked eredmények', () => {
   const events = [];
   e.onEvent = (ev) => events.push(ev);
   e.cars = [];
-  e.addObstacle(0, 5, 1);
+  e.addObstacle(0, TRAFFIC.changeAhead * 0.5, 1); // a blokkolási ablakon belül elől
   e.player.x = laneCenterX(2);
   assert.equal(e.playerChangeLane(-1), 'blocked');
   assert.equal(events[0].kind, 'laneBlocked');
