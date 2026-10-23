@@ -436,15 +436,31 @@ export class SimEngine {
 
   // ---- kapu / wrap ----
   // Az effektív kapu-óra fogyási ütem az adott sávban (alap: laneRateByLane).
-  // Kivétel: ha a tőlünk jobbra lévő sáv FOGLALT (nem tudnánk jobbra húzódni),
-  // az óra a jobb-oldali (1,0×) ütemben fogy — a sávon belül maradás akkor se
-  // büntet, ha nem a te hibád (4. tétel).
+  // Kivételek (csak lane < 2, a jobb sávban az ütem úgyis 1,0×):
+  //  * foglalt jobb szomszéd, ahová húzódhatnánk → 1,0× (beragadt, nem a hibánk),
+  //  * aktív előzés: a TŐLÜNK JOBBRA lévő sávban errefelé van kocsi (elől
+  //    TRAFFIC.passAhead / hátúl TRAFFIC.passBehind méteren belül) → épp
+  //    mellette megyünk, ilyenkor az idő-növelés megszűnik; a jobbra tartás
+  //    tanítása így sem bünteti az előzőt.
   drainRate(lane) {
     const clamped = Math.max(0, Math.min(laneRateByLane.length - 1, lane));
-    if (clamped < 2 && !this.canChangeTo(clamped + 1, this.player.z)) {
+    if (clamped < 2 && (!this.canChangeTo(clamped + 1, this.player.z) ||
+        this.passingOnRight(clamped + 1))) {
       return laneRateByLane[2];
     }
     return laneRateByLane[clamped];
+  }
+
+  // Van-e nem-ghost kocsi a megadott sávban a játékos előtt passAhead / mögötte
+  // passBehind méteren belül? (aktív előzés / elhaladás jele)
+  passingOnRight(lane) {
+    const z = this.player.z;
+    for (const c of this.cars) {
+      if (c.ghost || c.lane !== lane) continue;
+      const d = c.z - z;
+      if (d > -TRAFFIC.passBehind && d < TRAFFIC.passAhead) return true;
+    }
+    return false;
   }
 
   scoringStep(dt) {

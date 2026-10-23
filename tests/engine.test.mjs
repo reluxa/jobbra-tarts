@@ -174,6 +174,33 @@ test('drainRate: foglalt jobbra lévő sáv → 1,0× (beragadt kivétel), jobb 
   assert.equal(e.drainRate(2), laneRateByLane[2]);
 });
 
+test('drainRate: aktív előzés — kocsi a JOBB sávban ±9/15 m-en belül → 1,0×', () => {
+  const e = fresh();
+  e.cars = [];
+  e.player.x = laneCenterX(1); // középső sáv
+  e.addObstacle(0, -12, 2);    // a jobb sávban, 12 m-rel mögöttünk → 15 m ablakon belül
+  assert.equal(e.drainRate(1), laneRateByLane[2], 'hátul 15 m-en belül → előzés alatt ×1');
+
+  e.cars[0].z = -16;           // mögötte már messzebb, mint 15 m → megint az ütem él
+  assert.equal(e.drainRate(1), laneRateByLane[1]);
+
+  e.cars[0].z = 10;            // elöl 10 m → tágabb, mint a 9 m-es ablak
+  assert.equal(e.drainRate(1), laneRateByLane[1]);
+
+  e.cars[0].z = 8;             // elöl 8 m → közeledünk hozzá → ×1
+  assert.equal(e.drainRate(1), laneRateByLane[2]);
+
+  // csak a JOBRA lévő szomszéd számít: saját sávbeli kocsi nem érintett
+  e.cars[0].z = 3;
+  e.cars[0].lane = 1;
+  e.cars[0].x = laneCenterX(1);
+  assert.equal(e.drainRate(1), laneRateByLane[1], 'saját sávban lévő közeli kocsi nem érintett');
+
+  // belső sáv: a jobb szomszéd-sáv SÁV 1 (közép) — oda léphetne még, az számít
+  e.player.x = laneCenterX(0);
+  assert.equal(e.drainRate(0), laneRateByLane[2], 'belsőben a foglalt közép miatt ×1');
+});
+
 test('playerChangeLane: ok/edge/busy/blocked eredmények', () => {
   const e = fresh();
   assert.equal(e.playerChangeLane(-1), 'ok');

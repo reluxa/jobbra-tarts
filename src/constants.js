@@ -74,6 +74,12 @@ export const TRAFFIC = {
   behindSpeed: [38, 46], // a gyors bal-sávos utolérők sebessége (m/s)
   changeAhead: 4.5,      // játékos sávváltás: ezen belül ELŐL blokkol a cél-sávban lévő autó (m)
   changeBehind: 10,      // játékos sávváltás: ezen belül MÖGÖTT is blokkol (m)
+  // Aktív előzés: ha a TŐLÜNK JOBBRA lévő sávban errefelé van kocsi (elől
+  // passAhead / hátúl passBehind méteren belül), akkor épp előzünk → a kapu-órára
+  // nem gyorsítunk (×1,35/×1,8 helyett ×1). Így a játékon belül is tanítható a
+  // jobbra tartás: az előzés akkor sem büntet, amíg el nem tudsz húzódni jobbra.
+  passAhead: 9,          // (m)
+  passBehind: 15,        // (m)
 };
 
 // ---- Pontozás / kapu-pálya --------------------

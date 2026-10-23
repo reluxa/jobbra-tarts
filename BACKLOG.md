@@ -16,7 +16,7 @@ Címkék: `[P1]` magas, `[P2]` közepes, `[P3]` alacsony/ötlet · `[x]` = kész
 - [x] **1. Élet-számláló (❤) törlése a HUD-ról** — a mechanika (3 baleset → game over) és a KAPU-felirat („KAPU #n", a pályát jelzi) marad
 - [x] **2. Jobbról-előzés → nagy képernyő-középpontú figyelmeztetés** — mint a SÁV FOGLALT!, „JOBBRÓL ELŐZTÉL! −5 s" pirosban (`warnBig(text, color, small)` általánosítás; a hosszú felirat mobilon kisebb betűvel is elfér)
 - [x] **3. Sáv-függő időfogyás vizualizálása** — ×1,8 / ×1,35 / ×1 jelvény a KAPU-IDŐ panelen (piros/narancs/zöld), az `engine.drainRate()` effektív ütemét mutatja frame-enként
-- [x] **4. Középső sáv + foglalt jobb sáv → ne fogyjon gyorsabban** — ha a tőlünk jobbra lévő sáv foglalt, az óra 1,0×-szal fogy (`drainRate` kivétel; a jelvény ilyenkor is ×1-et mutat)
+- [x] **4. Középső sáv + foglalt jobb sáv → ne fogyjon gyorsabban** — ha a tőlünk jobbra lévő sáv foglalt, az óra 1,0×-szal fogy (`drainRate` kivétel; a jelvény ilyenkor is ×1-et mutat); UÉS: aktív előzés — ha a jobb szomszéd-sávban van kocsi (előre 9 / hátra 15 m belül, `TRAFFIC.passAhead/passBehind`), szintén ×1,0× fogyás, így az előzés nem büntet
 - [ ] **5. Mobil játszhatóság** — diagnózis (teljesítmény: pixelRatio/tükör-RT, HUD-átfedések, gomb-elérhetőség), majd javítások
 - [ ] **6. Cockpit-maszk kézi javítása** — `public/mask-editor.html` rajzoló tool (ÜVEG/KERET ecset, zoom, mentés) + `applyHandMask` a játékban; A-oszlop/műszerfal-tető átlátszóság kijavítása közösen rajzolva
 - [ ] **7. Kanyargós autópálya + gazdagabb környezet** — látvány-szintű görbület (`roadShift(z)`, a sim marad egyenes); épületek, felüljáró, bokrok, sziklák, fafajták, km-táblák (mind instanced)
