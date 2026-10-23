@@ -12,6 +12,9 @@ export const batteryHue = (pct) => Math.max(6, (pct / 100) * 120);
 // A kapu-idő kijelzés formázása: másodpercek, sosem negatív, kerekítve.
 export const formatGateSecs = (s) => Math.max(0, Math.round(s)).toString();
 
+// Az időbüntetés felirata a KAPU-IDŐ panelre: „−N s", sosem negatív.
+export const formatTimeMinus = (s) => '−' + Math.max(0, Math.round(s)) + ' s';
+
 // A kapu-idő „hangulata” a százalékból: bőven van / figyelmeztet / kritikus.
 // A kijelző emiatt kap hangulat-osztályt (ecoBox.warn / ecoBox.crit).
 export const timeTone = (pct) => (pct <= 25 ? 'crit' : pct <= 50 ? 'warn' : 'ok');
@@ -25,6 +28,7 @@ export class HUD {
       flash: $('flash'),
       sigL: $('sigL'), sigR: $('sigR'),
       ecoBox: $('ecoBox'), gateT: $('gateT'), gateSub: $('gateSub'),
+      timeMinus: $('timeMinus'),
     };
     this.sigTimer = 0;
     this.best = 0;
@@ -82,6 +86,23 @@ export class HUD {
     if (sig === -1) { blink(l, true); blink(r, false); }
     else if (sig === 1) { blink(l, false); blink(r, true); }
     else { blink(l, false); blink(r, false); }
+  }
+
+  // Időbüntetés vizuális jelzése (jobbról-előzés: −5 s): a panel villan és
+  // rázkódik, a másodperc-szám rezdül, a „−N s" chip felszáll és elhalványul.
+  // Az osztály-restart (remove → reflow → add) miatt gyors egymásután is
+  // újraindul az animáció.
+  timeHit(secs = 0) {
+    if (!this.el.ecoBox || !this.el.gateT || !this.el.timeMinus) return;
+    this.el.timeMinus.textContent = formatTimeMinus(secs);
+    const restart = (el, cls) => {
+      el.classList.remove(cls);
+      void el.offsetWidth; // reflow: az animáció újraindul
+      el.classList.add(cls);
+    };
+    restart(this.el.ecoBox, 'hit');
+    restart(this.el.gateT, 'numhit');
+    restart(this.el.timeMinus, 'show');
   }
 
   flash() {

@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { installDomStubs } from './helpers/dom-stubs.js';
-import { HUD, formatLives, batteryHue } from '../src/hud.js';
+import { HUD, formatLives, batteryHue, formatTimeMinus } from '../src/hud.js';
 
 const { document, localStorage, makeEl } = installDomStubs();
 
 function mkHud() {
   const ids = ['score', 'best', 'mult', 'streak', 'lives', 'ecoFill', 'ecoVal',
-    'ecoBox', 'gateT', 'gateSub', 'secFill', 'speed', 'hintBox', 'flash', 'sigL', 'sigR'];
+    'ecoBox', 'gateT', 'gateSub', 'secFill', 'speed', 'hintBox', 'flash', 'sigL', 'sigR',
+    'timeMinus'];
   const el = {};
   for (const id of ids) el[id] = makeEl();
   document.register(el);
@@ -104,4 +105,41 @@ test('HUD: flash és setHint a DOM-ra ír', (t) => {
   assert.equal(h.el.flash.style.transition, 'opacity 0.5s ease');
   h.setHint('<b>kia</b>');
   assert.equal(h.el.hint.innerHTML, '<b>kia</b>');
+});
+
+// ---- időbüntetés-vizualizáció (jobbról-előzés): chip + panel/szám-reakció ----
+
+test('formatTimeMinus: −N s, kerekítve, sosem negatív', () => {
+  assert.equal(formatTimeMinus(5), '−5 s');
+  assert.equal(formatTimeMinus(4.4), '−4 s');
+  assert.equal(formatTimeMinus(4.6), '−5 s');
+  assert.equal(formatTimeMinus(0), '−0 s');
+  assert.equal(formatTimeMinus(-3), '−0 s');
+});
+
+test('HUD: timeHit — chip felirat + a hit/numhit/show osztályok felkerülnek', () => {
+  const h = mkHud();
+  // osztály-rögzítő classList a panelre/számra/chipre (a gatetime teszt mintájára)
+  const rec = (el) => {
+    const classes = new Set();
+    el.classList = {
+      add: (c) => classes.add(c),
+      remove: (c) => classes.delete(c),
+      toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)),
+    };
+    el._classes = classes;
+  };
+  rec(h.el.ecoBox); rec(h.el.gateT); rec(h.el.timeMinus);
+
+  h.timeHit(5);
+  assert.equal(h.el.timeMinus.textContent, '−5 s');
+  assert.ok(h.el.ecoBox._classes.has('hit'), 'a panel megkapja a .hit osztályt');
+  assert.ok(h.el.gateT._classes.has('numhit'), 'a másodperc-szám a .numhit-et');
+  assert.ok(h.el.timeMinus._classes.has('show'), 'a chip a .show-t');
+
+  h.timeHit(0); // újabb büntetés → az osztályok újraindulnak (remove+add)
+  assert.equal(h.el.timeMinus.textContent, '−0 s');
+  assert.ok(h.el.ecoBox._classes.has('hit'), 'új hívásnál is felkerül a .hit');
+  assert.ok(h.el.gateT._classes.has('numhit'));
+  assert.ok(h.el.timeMinus._classes.has('show'));
 });

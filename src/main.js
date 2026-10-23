@@ -3,7 +3,7 @@
 // a magban van — ez a fájl a render-loopot, a kamerákat, a HUD-ot, a
 // hangokat/effekteket és az állapotgépet tartja, az eseményekből építve.
 import * as THREE from 'three';
-import { CAMERA, PHYS_FIXED, SCORE, SIGNAL, TRAFFIC, laneCenterX } from './constants.js';
+import { CAMERA, PEN, PHYS_FIXED, SCORE, SIGNAL, TRAFFIC, laneCenterX } from './constants.js';
 import { carveTransparent, carvePockets, wallCeiling } from './mask.js';
 import { World } from './world.js';
 import { Player } from './player.js';
@@ -155,7 +155,12 @@ export class Game {
       case 'penalty':
         this.audio.penalty();
         this.effects.popup(ev.text, ev.color, p3());
-        if (!ev.selfDidIt) this.pushTip('Jobbról előztek — húzódj jobbra!');
+        if (ev.selfDidIt) {
+          // a kapu-időből való levonás látható legyen a KAPU-IDŐ panelen
+          this.hud.timeHit(PEN.cutIn);
+        } else {
+          this.pushTip('Jobbról előztek — húzódj jobbra!');
+        }
         break;
       case 'gate':
         this.audio.bonus();

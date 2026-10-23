@@ -60,6 +60,34 @@
     #ecoBox.crit #ecoBar { border-color: rgba(255, 82, 82, 0.9); }
     @keyframes gatePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
+    /* időbüntetés-reakció (jobbról-előzés, bevágás): a panel villan és
+       rázkódik, a másodperc-szám rezdül, a „−N s" chip felszáll és elhalványul */
+    #ecoBox.hit { animation: ecohit 0.5s ease-out; }
+    #ecoBox.hit #gateT { animation: numhit 0.45s ease-out; }
+    #timeMinus {
+      position: absolute; top: 28px; right: 10px;
+      font-size: 17px; font-weight: 800; color: #ff5252;
+      text-shadow: 0 0 8px rgba(255, 60, 60, 0.9), 0 2px 4px rgba(0, 0, 0, 0.8);
+      opacity: 0; pointer-events: none;
+    }
+    #timeMinus.show { animation: minusfloat 1s ease-out forwards; }
+    @keyframes ecohit {
+      0%, 100% { transform: translateX(0); border-color: rgba(255, 255, 255, 0.16); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
+      15% { transform: translateX(-4px); border-color: rgba(255, 82, 82, 0.95); box-shadow: 0 0 18px rgba(255, 60, 60, 0.65); }
+      35% { transform: translateX(3px); }
+      55% { transform: translateX(-2px); }
+      75% { transform: translateX(1px); }
+    }
+    @keyframes numhit {
+      0% { transform: scale(1); }
+      30% { transform: scale(1.35); color: #ff5252; }
+      100% { transform: scale(1); }
+    }
+    @keyframes minusfloat {
+      0% { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(-18px); }
+    }
+
     #speedBox { bottom: 14px; right: 16px; text-align: right; padding: 6px 16px 8px; }
     #speed { font-size: 62px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 0.95; -webkit-text-stroke: 1px rgba(0, 0, 0, 0.3); }
     #speedUnit { font-size: 15px; opacity: 0.85; letter-spacing: 2px; }
@@ -87,6 +115,7 @@
       #streak { font-size: 12px; }
       #ecoBox { top: 22%; right: 10px; width: 196px; padding: 6px 10px 8px; }
       #gateT { font-size: 34px; }
+      #timeMinus { font-size: 15px; top: 22px; right: 8px; }
       #speed { font-size: 48px; }
       #sigBox { bottom: 88px; }
       #hintBox { font-size: 14px; padding: 8px 14px; }
@@ -195,6 +224,7 @@
       <div id="ecoBar"><div id="ecoFill"></div></div>
       <div id="secBar"><div id="secFill"></div></div>
       <div id="gateSub">a kapuig 0%</div>
+      <div id="timeMinus">−0 s</div>
     </div>
     <div class="hudbox panel" id="speedBox">
       <div id="speed">0</div>
