@@ -16,19 +16,31 @@ import { loadCarModels } from './models.js';
 import { SimEngine } from './sim/engine.js';
 import { makeRng } from './sim/prng.js';
 
+// Érintőképernyős irányítás? A tippek és a HUD hint-sora is ehhez igazodik
+// (mobilon értelmetlen a billentyűzetet leírni).
+const TOUCH = ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0;
+
 const TIPS = [
   'A jobb szélső sáv a haladási sávod — ott lassabban fogy a kapu-időd, ezért CSAK jobbra tartva lehet nyerni.',
-  'Sávváltás:  A  vagy  ←  balra,  D  vagy  →  jobbra — a játék elvégzi a váltást.',
+  TOUCH ? 'Sávváltás: ◀ balra, ▶ jobbra — a játék elvégzi a váltást.'
+    : 'Sávváltás:  A  vagy  ←  balra,  D  vagy  →  jobbra — a játék elvégzi a váltást.',
   'Kapuk közt haladsz: a kapu-idő („kell ≈ … km/h”) minden kapunál fogy — érj oda, mielőtt lejár.',
   'A belső (bal) sávban az óra 1.8-szor gyorsabban zabálja az idődet — csak rövid elözésre menj oda.',
   'Előzni csak balról szabad: ki balra, előzés, majd VISSZA jobbra (különben elfolyik az időd).',
   'Jobbról előztek? Túl balfelé kószálsz — térj vissza jobbra!',
-  'Indexelj (Q/E) a sávváltás előtt: +12 pont, jelzés nélkül −8 PONT és −3s kapu-idő!',
+  TOUCH ? 'Indexelj (❮ / ❯) a sávváltás előtt: +12 pont, jelzés nélkül −8 PONT és −3s kapu-idő!'
+    : 'Indexelj (Q/E) a sávváltás előtt: +12 pont, jelzés nélkül −8 PONT és −3s kapu-idő!',
   'Visszapillantó tükör: nézd, ki közelít hátulról a bal sávban!',
   'Kamion a jobb sávban? Dönts: előzd meg balról, vagy maradj mögötte.',
   'Egyre nehezebb: gyorsul az autó, sűrűsödik a forgalom és nő a kért átlag (km/h).',
 ];
 const TIP_DELAY = 4.5;
+
+// Érintőképernyős irányítás? A HUD hint-sora is ehhez igazodik (mobilon
+// értelmetlen a billentyűzetet leírni).
+const HINT_KEYS = TOUCH
+  ? '◀ ▶ sávváltás • ❮ ❯ index'
+  : 'A/D sávváltás • Q/E index • P szünet • M hang';
 
 const $ = (id) => document.getElementById(id);
 
@@ -86,7 +98,10 @@ export class Game {
     this.canvas = document.createElement('canvas');
     $('game').appendChild(this.canvas);
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    // Kis képernyőn (mobil) mérsékelt pixelratió: a telefon GPU-ja így bírja a
+    // 60 képkockát, az élesség-különbség a nagy DPR-ű paneleken is csekély.
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    this.renderer.setPixelRatio(Math.min(innerWidth, innerHeight) < 500 ? Math.min(1.75, dpr) : dpr);
     this.renderer.setSize(window.innerWidth, window.innerHeight, false);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -456,7 +471,7 @@ export class Game {
   }
 
   pushTip(text) {
-    this.hud.setHint(text + '<small>A/D sávváltás • Q/E index • P szünet • M hang</small>');
+    this.hud.setHint(text + '<small>' + HINT_KEYS + '</small>');
     setTimeout(() => { this.tipT = TIP_DELAY; }, 3200);
   }
 
@@ -475,7 +490,7 @@ export class Game {
 
   renderTip() {
     const tip = TIPS[this.tipIdx % TIPS.length];
-    this.hud.setHint(tip + '<small><b>Jobbra tartás:</b> A/D sávváltás • Q/E index • P szünet • M hang</small>');
+    this.hud.setHint(tip + '<small><b>Jobbra tartás:</b> ' + HINT_KEYS + '</small>');
   }
 
   tutorial(dt) {

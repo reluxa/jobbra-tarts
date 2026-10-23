@@ -116,7 +116,7 @@
     @media (max-width: 700px) {
       #scoreBox { top: 10px; left: 10px; padding: 6px 12px 8px; }
       #score { font-size: 34px; }
-      #myBox { top: 92px; left: 10px; transform: none; text-align: left; padding: 6px 14px 8px; }
+      #myBox { top: 100px; left: 10px; transform: none; text-align: left; padding: 6px 14px 8px; }
       #mult { font-size: 22px; }
       #streak { font-size: 12px; }
       #ecoBox { top: 22%; right: 10px; width: 196px; padding: 6px 10px 8px; }
@@ -128,7 +128,8 @@
       #ecoVal { font-size: 12px; }
       #speed { font-size: 48px; }
       #sigBox { bottom: 88px; }
-      #hintBox { font-size: 14px; padding: 8px 14px; }
+      /* mobilon a tipp balra igazítva, hogy ne lógjon rá a km/h kijelzőre */
+      #hintBox { left: 12px; transform: none; text-align: left; max-width: 64%; font-size: 14px; padding: 8px 14px; }
     }
 
     /* 3D-be vetített feliratok */
@@ -146,7 +147,15 @@
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       background: rgba(4, 12, 20, 0.82); color: #fff; text-align: center;
       padding: 24px;
+      /* telefonon (álló és fekvő) a szabály-oldal hosszabb a képernyőnél:
+         görgethető legyen, hogy az INDÍTÁS gomb mindig elérhető maradjon! */
+      overflow-y: auto;
     }
+    @media (max-height: 700px) {
+      .overlay { justify-content: flex-start; }
+    }
+    /* érintőképernyőn a billentyűzetes lábjegyzet felesleges */
+    @media (pointer: coarse) { .kbdhint { display: none; } }
     .overlay.hidden { display: none; }
     .overlay h1 { font-size: 56px; letter-spacing: 6px; font-weight: 900; margin-bottom: 6px; text-shadow: 0 0 30px rgba(41, 182, 246, 0.5); }
     .overlay h2 { font-size: 18px; font-weight: 500; opacity: 0.8; margin-bottom: 26px; }
@@ -163,6 +172,22 @@
       transition: transform 0.08s ease;
     }
     .btn:hover { transform: translateY(-2px) scale(1.02); }
+    /* alacsony/nem magas képernyő: a szabály-oldal kompakt tördelése, hogy a
+       gomb elérhető legyen; a bázis-szabályok UTÁN kell jönnie */
+    @media (max-width: 700px), (max-height: 520px) {
+      .overlay { padding: 14px; }
+      .overlay h1 { font-size: 34px; letter-spacing: 4px; margin-bottom: 4px; }
+      .overlay h2 { font-size: 14px; margin-bottom: 14px; }
+      .rules { grid-template-columns: 1fr; font-size: 12.5px; gap: 8px 0; margin-bottom: 16px; line-height: 1.4; }
+      .btn { font-size: 18px; padding: 12px 36px; }
+    }
+    /* fekvő telefon: az alcím és a nagyobb cím elhagyható, hogy az INDÍTÁS
+       gomb görgetés nélkül is látszódjon (csak a start-overlay-en!) */
+    @media (max-height: 440px) {
+      #startOverlay h1 { font-size: 26px; margin-bottom: 2px; }
+      #startOverlay h2 { display: none; }
+      #startOverlay .rules { gap: 6px 0; margin-bottom: 10px; font-size: 12px; }
+    }
     kbd { background: rgba(255,255,255,0.14); border-radius: 6px; padding: 2px 8px; font-size: 13px; font-family: inherit; }
     #verBox { margin-top: 22px; font-size: 12px; letter-spacing: 1px; opacity: 0.45; font-variant-numeric: tabular-nums; }
     #pauseMsg { font-size: 40px; font-weight: 900; letter-spacing: 8px; }
@@ -184,8 +209,6 @@
     #touch .tbtn:active { background: rgba(255, 255, 255, 0.28); }
     #tL  { left: 18px; bottom: 150px; }
     #tR  { left: 106px; bottom: 150px; }
-    #tGas  { right: 106px; bottom: 150px; }
-    #tBrk  { right: 18px; bottom: 150px; }
     #tSigL { left: 18px;  bottom: 240px; width: 58px; height: 58px; font-size: 22px; }
     #tSigR { left: 90px;  bottom: 240px; width: 58px; height: 58px; font-size: 22px; }
     @media (pointer: coarse) { #touch { display: block; } }
@@ -257,8 +280,6 @@
     <button class="tbtn" id="tSigR" aria-label="Index jobbra">❯</button>
     <button class="tbtn" id="tL" aria-label="Balra">◀</button>
     <button class="tbtn" id="tR" aria-label="Jobbra">▶</button>
-    <button class="tbtn" id="tGas" aria-label="Gáz">▲</button>
-    <button class="tbtn" id="tBrk" aria-label="Fék">▼</button>
   </div>
 
   <div class="overlay" id="startOverlay">
@@ -276,7 +297,7 @@
       <div class="good">➤ Vezetőülési nézet, <b>visszapillantó tükörrel</b>: nézd, ki közelít hátulról a bal sávban!</div>
     </div>
     <button class="btn" id="startBtn">▶ INDÍTÁS</button>
-    <div style="margin-top:18px; opacity:0.65; font-size:13px;">
+    <div class="kbdhint" style="margin-top:18px; opacity:0.65; font-size:13px;">
       <kbd>A</kbd>/<kbd>D</kbd> vagy <kbd>←→</kbd> „sávváltás” &nbsp; <kbd>Q</kbd>/<kbd>E</kbd> index &nbsp; <kbd>P</kbd> szünet &nbsp; <kbd>M</kbd> hang
     </div>
     <div id="verBox">…</div>
