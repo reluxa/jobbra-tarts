@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jobbra tartás — maszk-szerkesztő</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161c26; --border: #2a3442;
+    --txt: #d7dee8; --dim: #8b98a9;
+    --glass: #00ff78; --frame: #ff3b3b; --acc: #29b6f6;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--txt);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column; height: 100vh;
+  }
+  header {
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center;
+  }
+  h1 { font-size: 16px; margin: 0 14px 0 0; white-space: nowrap; }
+  h1 small { color: var(--dim); font-weight: 400; font-size: 12px; }
+  .group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .btn {
+    background: #1e2733; color: var(--txt); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer;
+  }
+  .btn:hover { background: #27323f; }
+  .btn.on { background: var(--acc); border-color: var(--acc); color: #06222f; font-weight: 700; }
+  .btn.danger { color: #ff8a8a; }
+  .btn.primary { background: #155e3a; border-color: #1f8a54; color: #eafff3; font-weight: 700; }
+  .btn.primary:hover { background: #1b7044; }
+  input[type="range"] { width: 110px; accent-color: var(--acc); }
+  #brushVal, #zoomVal { min-width: 44px; text-align: right; color: var(--acc); font-weight: 700; }
+  .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; }
+  .sw.glass { background: var(--glass); } .sw.frame { background: var(--frame); }
+  main { flex: 1; position: relative; overflow: hidden; }
+  #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+  #view.panning { cursor: grabbing; }
+  footer {
+    background: var(--panel); border-top: 1px solid var(--border);
+    padding: 6px 14px; font-size: 12px; color: var(--dim);
+    display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  }
+  footer b { color: var(--txt); }
+  #help { max-width: 780px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Maszk-szerkesztő <small>a cockpit.png átlátszóságának kézi javítása</small></h1>
+
+  <div class="group">
+    <button id="modeGlass" class="btn on" title="Ezt átlátszóvá teszi (a 3D világ látszik át).</br>Gyorsbillentyű: G">🪟 ÜVEG <span class="sw glass"></span></button>
+    <button id="modeFrame" class="btn" title="Ezt fedővé teszi (a fotó marad).</br>Gyorsbillentyű: F">🧱 KERET <span class="sw frame"></span></button>
+  </div>
+
+  <label class="group">Ecset
+    <input type="range" id="brushSize" min="2" max="200" value="24">
+    <span id="brushVal">24</span> px
+  </label>
+
+  <div class="group">
+    <button id="zoomIn" class="btn" title="Nagyítás (+)">+</button>
+    <button id="zoomOut" class="btn" title="Kicsinyítés (−)">−</button>
+    <button id="zoomFit" class="btn" title="Teljes kép (0)">illesztés</button>
+    <span id="zoomVal">100%</span>
+  </div>
+
+  <div class="group">
+    <button id="undoBtn" class="btn" title="Ctrl+Z">↶ visszavonás</button>
+    <button id="resetBtn" class="btn danger" title="Minden vonás törlése">✕ törlés</button>
+  </div>
+
+  <div class="group">
+    <span>Nézet:</span>
+    <button id="pvFinal" class="btn on" title="fotó + algoritmikus maszk + rajzod (1)">végeredmény</button>
+    <button id="pvBase" class="btn" title="eredeti fotó + rajzod (2)">fotó</button>
+    <button id="pvMask" class="btn" title="csak a vonások (3)">csak rajz</button>
+  </div>
+
+  <div class="group">
+    <button id="saveBtn" class="btn primary" title="handmask.png — tedd a repo public/ mappájába">💾 handmask.png letöltése</button>
+    <button id="draftSave" class="btn">vázlat (böngésző)</button>
+    <button id="draftLoad" class="btn">vázlat betöltése</button>
+    <label class="btn" style="display:inline-block">megnyitás…
+      <input type="file" id="loadFile" accept="image/png" hidden>
+    </label>
+  </div>
+</header>
+
+<main>
+  <canvas id="view"></canvas>
+</main>
+
+<footer>
+  <div id="help">
+    <b>Rajzolás:</b> bal egérgomb · <b>mozgatás:</b> jobb gomb / Space + húzás · <b>nagyítás:</b> görgő (a kurzornál) ·
+    G/F ecset · 1/2/3 nézet · Ctrl+Z visszavonás. <span class="sw glass"></span> ÜVEG = átlátszó, <span class="sw frame"></span> KERET = fedő.
+  </div>
+  <div id="status">…</div>
+</footer>
+
+<script>
+'use strict';
+
+const $ = (s) => document.querySelector(s);
+const view = $('#view');
+const vctx = view.getContext('2d');
+
+let IMG_W = 0, IMG_H = 0;
+let photoCanvas = null;   // eredeti fotó
+let maskedCanvas = null;  // fotó + algoritmikus maszk (amit a játék most mutat)
+let glassCV = null, glassCX = null;  // üveg-vonások (zöld)
+let frameCV = null, frameCX = null;  // keret-vonások (piros)
+
+let scale = 1, panX = 0, panY = 0;
+let mode = 'glass';
+let preview = 'final';
+let brushSize = 24;
+let drawing = false, lastImg = null;
+let panning = false, lastClient = null, spaceHeld = false;
+let undoStack = [];
+let checker = null;
+let cursor = null;
+
+/* ------------------------------------------------------------------ */
+/* Az algoritmikus maszk MÁSOLATA (src/mask.js — a játék ugyanezt      */
+/* használja; itt azért van másolat, hogy az editor önálló oldal       */
+/* lehessen: file://-ból és a gyári buildből is működjön).            */
+/* ------------------------------------------------------------------ */
+
+function wallCeiling(d, W, H, opt = {}) {
+  const minB = opt.minB ?? 165, maxSat = opt.maxSat ?? 45, minRun = opt.minRun ?? 4;
+  const from = Math.max(0, Math.floor(opt.from ?? H * 0.35));
+  const to = Math.min(H, Math.floor(opt.to ?? H * 0.8));
+  const isWall = (x, y) => {
+    const i = (y * W + x) * 4;
+    const mx = Math.max(d[i], d[i + 1], d[i + 2]);
+    const mn = Math.min(d[i], d[i + 1], d[i + 2]);
+    return mx >= minB && mx - mn <= maxSat;
+  };
+  const ceil = new Uint16Array(W);
+  for (let x = 0; x < W; x++) {
+    let gap = 0, seen = false, c = to, hit = false;
+    for (let y = from; y < to; y++) {
+      if (isWall(x, y)) { seen = true; gap = 0; }
+      else if (seen) {
+        gap++;
+        if (gap >= minRun) { c = y - minRun + 1; hit = true; break; }
+      }
+    }
+    if (!hit) c = to - gap;
+    ceil[x] = c;
+  }
+  return ceil;
+}
+
+function carveTransparent(d, W, H, seeds, opt = {}) {
+  const minB = opt.minBright ?? 125, maxB = opt.maxBright ?? 255, maxSat = opt.maxSat ?? 55;
+  const yMaxAll = opt.yMax == null ? H : opt.yMax;
+  const yMaxArr = ArrayBuffer.isView(yMaxAll) ? yMaxAll : null;
+  const yMaxRow = yMaxArr ? null : Math.floor(yMaxAll);
+  const darkB = opt.darkB ?? 100;
+  const capAt = (x) => (yMaxArr ? yMaxArr[x] : yMaxRow);
+  const qualifies = (i) => {
+    const p = i >> 2, x = p % W;
+    if (p - x >= capAt(x) * W) return false;
+    const r = d[i], g = d[i + 1], b = d[i + 2];
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    return mx - mn <= maxSat && mx >= minB && mx <= maxB;
+  };
+  const seen = new Uint8Array(W * H);
+  const stack = [];
+  let carved = 0;
+  for (const [sx, sy] of seeds) {
+    const x = Math.min(W - 1, Math.max(0, Math.round(sx)));
+    const y = Math.min(capAt(x) - 1, Math.max(0, Math.round(sy)));
+    const start = y * W + x;
+    if (seen[start] || !qualifies(start * 4)) continue;
+    stack.length = 0; stack.push(start); seen[start] = 1;
+    while (stack.length) {
+      const p = stack.pop();
+      d[p * 4 + 3] = 0; carved++;
+      const x2 = p % W, y2 = (p - x2) / W;
+      if (x2 > 0) { const q = p - 1; if (!seen[q] && qualifies(q * 4)) { seen[q] = 1; stack.push(q); } }
+      if (x2 < W - 1) { const q = p + 1; if (!seen[q] && qualifies(q * 4)) { seen[q] = 1; stack.push(q); } }
+      if (y2 > 0) { const q = p - W; if (!seen[q] && qualifies(q * 4)) { seen[q] = 1; stack.push(q); } }
+      if (y2 < H - 1) { const q = p + W; if (!seen[q] && qualifies(q * 4)) { seen[q] = 1; stack.push(q); } }
+    }
+  }
+  const isDark = (i) => Math.max(d[i], d[i + 1], d[i + 2]) < darkB;
+  const cleanH = yMaxArr ? H : yMaxRow;
+  for (let y = 1; y < cleanH - 1; y++) {
+    for (let x = 1; x < W - 1; x++) {
+      const p = y * W + x;
+      if (d[p * 4 + 3] !== 0) continue;
+      let darkN = 0;
+      let darkL = false, darkR = false, darkU = false, darkD = false;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          if (isDark((p + dy * W + dx) * 4)) {
+            darkN++;
+            if (dx < 0 && dy === 0) darkL = true;
+            if (dx > 0 && dy === 0) darkR = true;
+            if (dy < 0 && dx === 0) darkU = true;
+            if (dy > 0 && dx === 0) darkD = true;
+          }
+        }
+      }
+      if (darkN >= 3 && ((darkL && darkR) || (darkU && darkD))) d[p * 4 + 3] = 255;
+    }
+  }
+  return carved;
+}
+
+function carvePockets(d, W, H, seeds, opt = {}) {
+  const yMaxAll = opt.yMax == null ? H : opt.yMax;
+  const yMaxArr = ArrayBuffer.isView(yMaxAll) ? yMaxAll : null;
+  const maxC = yMaxArr ? H : Math.floor(yMaxAll);
+  const minC = Math.floor(opt.yMin ?? 0);
+  const minBright = opt.minBright ?? 80, maxSat = opt.maxSat ?? 60;
+  const seen = new Uint8Array(W * H);
+  const stack = [];
+  let carved = 0;
+  const qualifies = (i) => {
+    const p = i >> 2, x = p % W;
+    if (yMaxArr && p - x >= yMaxArr[x] * W) return false;
+    const r = d[i], g = d[i + 1], b = d[i + 2];
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    return mx - mn <= maxSat && mx >= minBright;
+  };
+  const tryQ = (q) => {
+    if (seen[q]) return;
+    const qy = (q - q % W) / W;
+    if (qy < minC || qy >= maxC) return;
+    if (qualifies(q * 4)) { seen[q] = 1; stack.push(q); }
+  };
+  for (const [sx, sy] of seeds) {
+    const x = Math.min(W - 1, Math.max(0, Math.round(sx)));
+    const y = Math.min(maxC - 1, Math.max(minC, Math.round(sy)));
+    const start = y * W + x;
+    if (seen[start] || !qualifies(start)) continue;
+    stack.length = 0; stack.push(start); seen[start] = 1;
+    while (stack.length) {
+      const p = stack.pop();
+      if (d[p * 4 + 3] !== 0) { d[p * 4 + 3] = 0; carved++; }
+      const x2 = p % W, y2 = (p - x2) / W;
+      if (x2 > 0) tryQ(p - 1);
+      if (x2 < W - 1) tryQ(p + 1);
+      if (y2 > minC) tryQ(p - W);
+      if (y2 < maxC - 1) tryQ(p + W);
+    }
+  }
+  return carved;
+}
+
+// A játék által használt pontos hívások (src/main.js setupCockpitOverlay).
+function buildProceduralMask() {
+  const W = IMG_W, H = IMG_H;
+  const ctx = maskedCanvas.getContext('2d');
+  ctx.drawImage(photoCanvas, 0, 0);
+  const idata = ctx.getImageData(0, 0, W, H);
+  const d = idata.data;
+
+  // a tükör (a fotó bal-job felső fele) helye — a játék is így keresi
+  let mx0 = W, mx1 = 0, my0 = H, my1 = 0;
+  for (let y = 0; y < H * 0.3; y++) {
+    for (let x = W * 0.5; x < W; x++) {
+      const j = (y * W + x) * 4;
+      if (d[j + 3] > 128 && (d[j] + d[j + 1] + d[j + 2]) / 3 < 110) {
+        if (x < mx0) mx0 = x; if (x > mx1) mx1 = x;
+        if (y < my0) my0 = y; if (y > my1) my1 = y;
+      }
+    }
+  }
+
+  const ceil = wallCeiling(d, W, H);
+  const carved = carveTransparent(d, W, H, [
+    [W * 0.45, H * 0.2], [W * 0.2, H * 0.24], [W * 0.75, H * 0.2],
+    [W * 0.95, H * 0.2], [W * 0.04, H * 0.35],
+  ], { minBright: 95, maxSat: 60, yMax: ceil });
+  const carved2 = carvePockets(d, W, H, [
+    [W * 0.45, H * 0.53], [W * 0.35, H * 0.55], [W * 0.62, H * 0.54],
+    [W * 0.8, H * 0.55],
+  ], { minBright: 90, yMin: H * 0.45, yMax: ceil });
+
+  if (mx1 - mx0 > 60 && my1 - my0 > 20) {
+    const ix = 16, iy = 10;
+    const gx0 = mx0 + ix, gx1 = mx1 - ix, gy0 = my0 + iy, gy1 = my1 - iy;
+    for (let y = gy0; y < H * 0.3 && y < gy1; y++) {
+      for (let x = gx0; x < gx1; x++) d[(y * W + x) * 4 + 3] = 0;
+    }
+  }
+
+  ctx.putImageData(idata, 0, 0);
+  return carved + carved2;
+}
+
+/* ------------------------------------------------------------------ */
+/* Munka: két teljes felbontású vászon a vonásoknak                    */
+/* ------------------------------------------------------------------ */
+
+function makeWorkCanvas() {
+  glassCV = document.createElement('canvas'); glassCV.width = IMG_W; glassCV.height = IMG_H;
+  glassCX = glassCV.getContext('2d');
+  glassCX.lineCap = 'round'; glassCX.lineJoin = 'round';
+  frameCV = document.createElement('canvas'); frameCV.width = IMG_W; frameCV.height = IMG_H;
+  frameCX = frameCV.getContext('2d');
+  frameCX.lineCap = 'round'; frameCX.lineJoin = 'round';
+  undoStack = [];
+}
+
+function activeCtx() { return mode === 'glass' ? glassCX : frameCX; }
+
+function pushUndo() {
+  const which = mode;
+  const cv = which === 'glass' ? glassCV : frameCV;
+  undoStack.push({ which, data: cv.getContext('2d').getImageData(0, 0, IMG_W, IMG_H) });
+  if (undoStack.length > 60) undoStack.shift();
+}
+
+function undo() {
+  const e = undoStack.pop();
+  if (!e) return;
+  const cv = e.which === 'glass' ? glassCV : frameCV;
+  cv.getContext('2d').putImageData(e.data, 0, 0);
+  render(); updateStatus();
+}
+
+function strokeTo(p) {
+  const ctx = activeCtx();
+  ctx.strokeStyle = mode === 'glass' ? '#00ff78' : '#ff3b3b';
+  ctx.fillStyle = ctx.strokeStyle;
+  ctx.lineWidth = brushSize;
+  if (lastImg && (lastImg.x !== p.x || lastImg.y !== p.y)) {
+    ctx.beginPath();
+    ctx.moveTo(lastImg.x, lastImg.y);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, brushSize / 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// Vonás-kép betöltése (handmask.png vagy vázlat): szín alapján szétválogatás
+function classifyIntoWorks(img) {
+  const d = img.data;
+  const g = glassCX.createImageData(IMG_W, IMG_H);
+  const f = frameCX.createImageData(IMG_W, IMG_H);
+  const gd = g.data, fd = f.data;
+  let gN = 0, fN = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], gg = d[i + 1], a = d[i + 3];
+    if (a < 32) continue;
+    if (gg > 80 && r <= 80) { gd[i] = 0; gd[i + 1] = 255; gd[i + 2] = 120; gd[i + 3] = 255; gN++; }
+    else if (r > 80 && gg <= 80) { fd[i] = 255; fd[i + 1] = 60; fd[i + 2] = 60; fd[i + 3] = 255; fN++; }
+  }
+  glassCX.putImageData(g, 0, 0);
+  frameCX.putImageData(f, 0, 0);
+  return { gN, fN };
+}
+
+function combinedCanvas() {
+  const cv = document.createElement('canvas');
+  cv.width = IMG_W; cv.height = IMG_H;
+  const ctx = cv.getContext('2d');
+  ctx.drawImage(glassCV, 0, 0);
+  ctx.drawImage(frameCV, 0, 0);
+  return cv;
+}
+
+function savePng(name) {
+  combinedCanvas().toBlob((blob) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }, 'image/png');
+}
+
+/* ------------------------------------------------------------------ */
+/* Megjelenítés                                                         */
+/* ------------------------------------------------------------------ */
+
+function makeChecker() {
+  const p = document.createElement('canvas'); p.width = 24; p.height = 24;
+  const c = p.getContext('2d');
+  c.fillStyle = '#232c3a'; c.fillRect(0, 0, 24, 24);
+  c.fillStyle = '#1a222e'; c.fillRect(0, 0, 12, 12); c.fillRect(12, 12, 12, 12);
+  checker = vctx.createPattern(p, 'repeat');
+}
+
+function render() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const cw = view.clientWidth, ch = view.clientHeight;
+  if (view.width !== Math.round(cw * dpr) || view.height !== Math.round(ch * dpr)) {
+    view.width = Math.round(cw * dpr);
+    view.height = Math.round(ch * dpr);
+  }
+  vctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  vctx.fillStyle = '#0d1117';
+  vctx.fillRect(0, 0, cw, ch);
+  if (!photoCanvas) {
+    vctx.fillStyle = '#8b98a9'; vctx.font = '16px system-ui, sans-serif';
+    vctx.fillText('A cockpit.png betöltése…', 24, 40);
+    return;
+  }
+
+  vctx.save();
+  vctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * panX, dpr * panY);
+  vctx.beginPath(); vctx.rect(0, 0, IMG_W, IMG_H); vctx.clip();
+
+  vctx.fillStyle = checker;
+  vctx.fillRect(0, 0, IMG_W, IMG_H);
+
+  const src = preview === 'final' ? maskedCanvas : photoCanvas;
+  vctx.drawImage(src, 0, 0);
+
+  if (preview !== 'mask') {
+    // üveg → lyuk a képen (a sakktábla látszik át)
+    vctx.globalCompositeOperation = 'destination-out';
+    vctx.drawImage(glassCV, 0, 0);
+    vctx.globalCompositeOperation = 'source-over';
+    // keret → áttetsző piros rárajzolás (a képen fed, de látszik hol rajzoltunk)
+    vctx.globalAlpha = 0.45;
+    vctx.drawImage(frameCV, 0, 0);
+    vctx.globalAlpha = 1;
+  } else {
+    vctx.drawImage(glassCV, 0, 0);
+    vctx.drawImage(frameCV, 0, 0);
+  }
+  vctx.restore();
+
+  // képkeret
+  vctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  vctx.lineWidth = 1;
+  vctx.strokeRect(panX, panY, IMG_W * scale, IMG_H * scale);
+
+  // ecset-kurzor
+  if (cursor && !panning) {
+    const mx = panX + cursor.img.x * scale;
+    const my = panY + cursor.img.y * scale;
+    const rad = (brushSize / 2) * scale;
+    vctx.beginPath();
+    vctx.arc(mx, my, rad, 0, Math.PI * 2);
+    vctx.strokeStyle = mode === 'glass' ? 'rgba(0,255,120,0.9)' : 'rgba(255,59,59,0.9)';
+    vctx.lineWidth = 1.5;
+    vctx.stroke();
+    if (rad < 14) { vctx.beginPath(); vctx.arc(mx, my, 1.5, 0, Math.PI * 2); vctx.fillStyle = '#fff'; vctx.fill(); }
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Kép betöltése, méretezés                                             */
+/* ------------------------------------------------------------------ */
+
+function loadImageElement(img) {
+  IMG_W = img.naturalWidth; IMG_H = img.naturalHeight;
+  photoCanvas = document.createElement('canvas');
+  photoCanvas.width = IMG_W; photoCanvas.height = IMG_H;
+  photoCanvas.getContext('2d').drawImage(img, 0, 0);
+  maskedCanvas = document.createElement('canvas');
+  maskedCanvas.width = IMG_W; maskedCanvas.height = IMG_H;
+  makeWorkCanvas();
+  const carved = buildProceduralMask();
+  fit();
+  render();
+  updateStatus();
+  setStatusNote(`algoritmikus maszk: ${carved.toLocaleString('hu-HU')} px`);
+}
+
+function loadImageSrc(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+function fit() {
+  const cw = view.clientWidth, ch = view.clientHeight;
+  scale = Math.min(cw / IMG_W, ch / IMG_H) * 0.96;
+  panX = (cw - IMG_W * scale) / 2;
+  panY = (ch - IMG_H * scale) / 2;
+}
+
+function zoomAt(ns, cx, cy) {
+  const r = view.getBoundingClientRect();
+  const px = cx - r.left, py = cy - r.top;
+  const wx = (px - panX) / scale, wy = (py - panY) / scale;
+  scale = Math.min(24, Math.max(0.2, ns));
+  panX = px - wx * scale; panY = py - wy * scale;
+  render();
+}
+
+/* ------------------------------------------------------------------ */
+/* Események                                                            */
+/* ------------------------------------------------------------------ */
+
+function imgPos(ev) {
+  const r = view.getBoundingClientRect();
+  return {
+    x: (ev.clientX - r.left - panX) / scale,
+    y: (ev.clientY - r.top - panY) / scale,
+  };
+}
+
+view.addEventListener('pointerdown', (ev) => {
+  view.setPointerCapture(ev.pointerId);
+  if (ev.button === 2 || ev.button === 1 || spaceHeld || ev.ctrlKey) {
+    panning = true; lastClient = { x: ev.clientX, y: ev.clientY };
+    view.classList.add('panning');
+    return;
+  }
+  if (!photoCanvas) return;
+  drawing = true;
+  const p = imgPos(ev);
+  lastImg = p;
+  cursor = { img: p };
+  pushUndo();
+  strokeTo(p);
+  render();
+});
+
+view.addEventListener('pointermove', (ev) => {
+  if (panning) {
+    panX += ev.clientX - lastClient.x;
+    panY += ev.clientY - lastClient.y;
+    lastClient = { x: ev.clientX, y: ev.clientY };
+    render();
+    return;
+  }
+  const p = imgPos(ev);
+  cursor = { img: p };
+  if (drawing) { strokeTo(p); lastImg = p; }
+  render();
+  updateCursorInfo();
+});
+
+function endStroke() {
+  drawing = false; panning = false;
+  view.classList.remove('panning');
+  updateStatus();
+}
+view.addEventListener('pointerup', endStroke);
+view.addEventListener('pointercancel', endStroke);
+
+view.addEventListener('contextmenu', (ev) => ev.preventDefault());
+
+view.addEventListener('wheel', (ev) => {
+  ev.preventDefault();
+  zoomAt(scale * (ev.deltaY < 0 ? 1.25 : 0.8), ev.clientX, ev.clientY);
+}, { passive: false });
+
+window.addEventListener('keydown', (ev) => {
+  if (ev.code === 'Space') { spaceHeld = true; ev.preventDefault(); }
+  if (ev.ctrlKey && ev.key.toLowerCase() === 'z') { ev.preventDefault(); undo(); }
+  if (ev.key === 'g' || ev.key === 'G') setMode('glass');
+  if (ev.key === 'f' || ev.key === 'F') setMode('frame');
+  if (ev.key === '1') setPreview('final');
+  if (ev.key === '2') setPreview('base');
+  if (ev.key === '3') setPreview('mask');
+  if (ev.key === '=' || ev.key === '+') zoomAt(scale * 1.25, view.clientWidth / 2, view.clientHeight / 2);
+  if (ev.key === '-') zoomAt(scale / 1.25, view.clientWidth / 2, view.clientHeight / 2);
+  if (ev.key === '0') { fit(); render(); }
+});
+window.addEventListener('keyup', (ev) => { if (ev.code === 'Space') spaceHeld = false; });
+
+/* ------------------------------------------------------------------ */
+/* Toolbar                                                              */
+/* ------------------------------------------------------------------ */
+
+function setMode(m) {
+  mode = m;
+  $('#modeGlass').classList.toggle('on', m === 'glass');
+  $('#modeFrame').classList.toggle('on', m === 'frame');
+  render();
+}
+function setPreview(p) {
+  preview = p;
+  $('#pvFinal').classList.toggle('on', p === 'final');
+  $('#pvBase').classList.toggle('on', p === 'base');
+  $('#pvMask').classList.toggle('on', p === 'mask');
+  render();
+}
+
+$('#modeGlass').addEventListener('click', () => setMode('glass'));
+$('#modeFrame').addEventListener('click', () => setMode('frame'));
+$('#pvFinal').addEventListener('click', () => setPreview('final'));
+$('#pvBase').addEventListener('click', () => setPreview('base'));
+$('#pvMask').addEventListener('click', () => setPreview('mask'));
+
+$('#brushSize').addEventListener('input', (ev) => {
+  brushSize = parseInt(ev.target.value, 10);
+  $('#brushVal').textContent = brushSize;
+  render();
+});
+
+$('#zoomIn').addEventListener('click', () => zoomAt(scale * 1.5, view.clientWidth / 2, view.clientHeight / 2));
+$('#zoomOut').addEventListener('click', () => zoomAt(scale / 1.5, view.clientWidth / 2, view.clientHeight / 2));
+$('#zoomFit').addEventListener('click', () => { fit(); render(); });
+
+$('#undoBtn').addEventListener('click', undo);
+$('#resetBtn').addEventListener('click', () => {
+  if (!photoCanvas) return;
+  if (!confirm('Minden vonást törlök (üveg és keret is). Folytatod?')) return;
+  glassCX.clearRect(0, 0, IMG_W, IMG_H);
+  frameCX.clearRect(0, 0, IMG_W, IMG_H);
+  undoStack = [];
+  render(); updateStatus();
+});
+
+$('#saveBtn').addEventListener('click', () => {
+  if (!photoCanvas) return;
+  savePng('handmask.png');
+  setStatusNote('a handmask.png a Letöltések mappában — másold a repo public/ mappájába');
+});
+
+$('#draftSave').addEventListener('click', () => {
+  if (!photoCanvas) return;
+  try {
+    localStorage.setItem('jt-mask-editor-draft', combinedCanvas().toDataURL('image/png'));
+    setStatusNote('vázlat elmentve a böngészőbe');
+  } catch { setStatusNote('a vázlat nem fért a böngészőtárba'); }
+});
+
+$('#draftLoad').addEventListener('click', () => {
+  const url = localStorage.getItem('jt-mask-editor-draft');
+  if (!url) { setStatusNote('nincs mentett vázlat'); return; }
+  loadImageSrc(url).then(applyMaskImage).catch(() => setStatusNote('a vázlat nem olvasható'));
+});
+
+$('#loadFile').addEventListener('change', (ev) => {
+  const f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  const url = URL.createObjectURL(f);
+  loadImageSrc(url).then((img) => {
+    URL.revokeObjectURL(url);
+    applyMaskImage(img);
+  }).catch(() => { URL.revokeObjectURL(url); setStatusNote('a fájl nem olvasható — PNG-t adj meg'); });
+  ev.target.value = '';
+});
+
+function applyMaskImage(img) {
+  if (!photoCanvas) {
+    // még nincs fotó: a megnyitott kép LEHET maga a fotó-vagy-vonás-kép
+    const cv = document.createElement('canvas');
+    cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+    const cx = cv.getContext('2d');
+    cx.drawImage(img, 0, 0);
+    // ha van zöld/piros vonás, vonás-kép, különben fotó
+    const d = cx.getImageData(0, 0, cv.width, cv.height).data;
+    let colored = 0;
+    for (let i = 0; i < d.length && colored < 50; i += 4) {
+      if (d[i + 3] > 32 && (d[i] > 80 || d[i + 1] > 80)) colored++;
+    }
+    if (colored < 50) { loadImageElement(img); return; }
+  }
+  const cv = document.createElement('canvas');
+  cv.width = IMG_W; cv.height = IMG_H;
+  const cx = cv.getContext('2d');
+  cx.drawImage(img, 0, 0, IMG_W, IMG_H);
+  const { gN, fN } = classifyIntoWorks(cx.getImageData(0, 0, IMG_W, IMG_H));
+  undoStack = [];
+  render(); updateStatus();
+  setStatusNote(`betöltve: ${gN.toLocaleString('hu-HU')} üveg + ${fN.toLocaleString('hu-HU')} keret px`);
+}
+
+/* ------------------------------------------------------------------ */
+/* Státusz                                                              */
+/* ------------------------------------------------------------------ */
+
+function countPixels() {
+  if (!glassCV) return { g: 0, f: 0 };
+  const gd = glassCX.getImageData(0, 0, IMG_W, IMG_H).data;
+  const fd = frameCX.getImageData(0, 0, IMG_W, IMG_H).data;
+  let g = 0, f = 0;
+  for (let i = 3; i < gd.length; i += 4) {
+    if (gd[i]) g++;
+    if (fd[i]) f++;
+  }
+  return { g, f };
+}
+
+let note = '';
+function setStatusNote(t) {
+  note = t;
+  updateStatus();
+}
+
+function updateStatus() {
+  $('#zoomVal').textContent = Math.round(scale * 100) + '%';
+  if (!photoCanvas) {
+    $('#status').textContent = Image ? 'fotó hiányzik — ha a kép nem tölt be, válaszd ki a „megnyitás…" gombbal' : '';
+    return;
+  }
+  const { g, f } = countPixels();
+  const parts = [
+    `${IMG_W}×${IMG_H} px`,
+    `üveg: <b>${g.toLocaleString('hu-HU')}</b> px`,
+    `keret: <b>${f.toLocaleString('hu-HU')}</b> px`,
+    `nagyítás: <b>${Math.round(scale * 100)}%</b>`,
+    `undo: ${undoStack.length}`,
+  ];
+  if (cursor) parts.push(`px: ${Math.round(cursor.img.x)}, ${Math.round(cursor.img.y)}`);
+  $('#status').innerHTML = parts.join(' · ') + (note ? ` — <span style="color:#ffd54a">${note}</span>` : '');
+}
+
+function updateCursorInfo() {
+  if (!photoCanvas) return;
+  const x = Math.max(0, Math.min(IMG_W - 1, Math.round(cursor.img.x)));
+  const y = Math.max(0, Math.min(IMG_H - 1, Math.round(cursor.img.y)));
+  const i = (y * IMG_W + x) * 4;
+  const d = maskedCanvas.getContext('2d').getImageData(x, y, 1, 1).data;
+  updateStatus();
+}
+
+/* ------------------------------------------------------------------ */
+/* Indítás                                                              */
+/* ------------------------------------------------------------------ */
+
+makeChecker();
+window.addEventListener('resize', () => { render(); updateStatus(); });
+
+(async () => {
+  try {
+    const img = await loadImageSrc('cockpit.png');
+    loadImageElement(img);
+  } catch {
+    $('#status').textContent = 'A cockpit.png nem érhető el innen — válaszd ki a „megnyitás…" gombbal, vagy indítsd a játék szerverét.';
+  }
+  // meglévő kézi maszk automatikus betöltése, ha a szerveren van
+  try {
+    const res = await fetch('handmask.png', { cache: 'no-store' });
+    if (res.ok) {
+      const blob = await res.blob();
+      const img = await loadImageSrc(URL.createObjectURL(blob));
+      URL.revokeObjectURL(img.src);
+      if (photoCanvas) applyMaskImage(img);
+      else { /* a fotó hiányzik, a maszkot a fotó betöltése után nézzük újra */ }
+    }
+  } catch { /* nincs kézi maszk még */ }
+})();
+
+updateStatus();
+</script>
+</body>
+</html>

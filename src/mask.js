@@ -172,3 +172,28 @@ export function carvePockets(d, W, H, seeds, opt = {}) {
   }
   return carved;
 }
+
+// Kézi maszk érvényesítése — a public/mask-editor.html-ben rajzolt vonások.
+// A zöld vonás üveget jelent (átlátszó), a piros keretet (fedő); a többi
+// pixelhez nem nyúlunk (az algoritmikus maszk eredménye marad). A tool
+// zöldje #00ff78, pirosa #ff3b3b. mdata: RGBA Uint8ClampedArray, pontosan
+// W×H méretű. Visszaadja, hány üveg- és hány keret-pixelt érvényesített.
+export function applyHandMask(d, W, H, mdata, opt = {}) {
+  const glassMinG = opt.glassMinG ?? 100;
+  const frameMinR = opt.frameMinR ?? 100;
+  let glass = 0;
+  let frame = 0;
+  for (let p = 0; p < W * H; p++) {
+    const i = p * 4;
+    const r = mdata[i];
+    const g = mdata[i + 1];
+    if (g > glassMinG && r <= frameMinR) {
+      d[i + 3] = 0;
+      glass++;
+    } else if (r > frameMinR && g <= glassMinG) {
+      d[i + 3] = 255;
+      frame++;
+    }
+  }
+  return { glass, frame };
+}

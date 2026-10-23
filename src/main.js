@@ -4,7 +4,7 @@
 // hangokat/effekteket és az állapotgépet tartja, az eseményekből építve.
 import * as THREE from 'three';
 import { CAMERA, PEN, PHYS_FIXED, SCORE, SIGNAL, TRAFFIC, laneCenterX } from './constants.js';
-import { carveTransparent, carvePockets, wallCeiling } from './mask.js';
+import { carveTransparent, carvePockets, wallCeiling, applyHandMask } from './mask.js';
 import { World } from './world.js';
 import { Player } from './player.js';
 import { TrafficView } from './traffic.js';
@@ -307,7 +307,7 @@ export class Game {
     this.mirrorQuad = mirrorQuad;
 
     const img = new Image();
-    img.onload = () => {
+    img.onload = async () => {
       try {
         const cv = document.createElement('canvas');
         const W = img.naturalWidth, H = img.naturalHeight;
@@ -372,6 +372,28 @@ export class Game {
           // a tükrös textúrát a setMirrorTexture már előkészítette (UV-flip)
           this.mirrorQuadMat.map = this.mirrorRT.texture;
           this.mirrorQuadMat.needsUpdate = true;
+        }
+
+        // Kézi maszk (a public/mask-editor.html-ben rajzolt): a zöld vonások
+        // átlátszót, a pirosak fedőt kényszerítenek. Az algoritmikus maszk
+        // UTÁN fut, így minden kézzel javítható — ha nincs ilyen fájl
+        // (handmask.png) a szerveren, az algoritmikus maszk marad érvényben.
+        try {
+          const res = await fetch('handmask.png', { cache: 'no-store' });
+          if (res.ok) {
+            const hm = await createImageBitmap(await res.blob());
+            const hcv = document.createElement('canvas');
+            hcv.width = W; hcv.height = H;
+            const hctx = hcv.getContext('2d');
+            hctx.drawImage(hm, 0, 0, W, H);
+            const stats = applyHandMask(d, W, H, hctx.getImageData(0, 0, W, H).data);
+            if (stats.glass + stats.frame > 0)
+              console.log(`Cockpit-overlay: kézi maszk ${stats.glass} üveg + ${stats.frame} keret px`);
+            else
+              console.warn('Cockpit-overlay: handmask.png üres (nincs vonás) — az algoritmikus maszk marad');
+          }
+        } catch (e) {
+          // nincs kézi maszk — az algoritmikus marad
         }
 
         ctx.putImageData(idata, 0, 0);
